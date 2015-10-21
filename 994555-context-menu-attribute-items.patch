@@ -1,12 +1,16 @@
+
 # HG changeset patch
 # User Grisha Pushkov <grisha@push.org.ru>
-# Parent  5423ad10d93037a7b1031e2b4958df8c2733a1fa
-Bug 994555 - [markup view] Context menu to easily edit, add and delete attributes
+# Date 1445352422 -7200
+# Node ID d615cb506271a0b47362e8916fcad7152fcf8c0f
+# Parent  2548895af94a60093c710726736ec2dc9c75f290
+Bug 994555 - Adds contextmenu items to edit add and delete attributes; r=pbro
 
 diff --git a/browser/locales/en-US/chrome/browser/devtools/inspector.dtd b/browser/locales/en-US/chrome/browser/devtools/inspector.dtd
 --- a/browser/locales/en-US/chrome/browser/devtools/inspector.dtd
 +++ b/browser/locales/en-US/chrome/browser/devtools/inspector.dtd
-@@ -75,16 +75,43 @@
+@@ -74,16 +74,42 @@
+ <!ENTITY inspectorScrollNodeIntoView.label       "Scroll Into View">
  <!ENTITY inspectorScrollNodeIntoView.accesskey   "S">
 
  <!-- LOCALIZATION NOTE (inspectorHTMLDelete.label): This is the label shown in
@@ -14,7 +18,6 @@ diff --git a/browser/locales/en-US/chrome/browser/devtools/inspector.dtd b/brows
       current node -->
  <!ENTITY inspectorHTMLDelete.label          "Delete Node">
  <!ENTITY inspectorHTMLDelete.accesskey      "D">
-
 +<!-- LOCALIZATION NOTE (inspectorAttributeSubmenu.label): This is the label
 +     shown in the inspector contextual-menu for the sub-menu of the other
 +     attribute items, which allow to:
@@ -41,7 +44,7 @@ diff --git a/browser/locales/en-US/chrome/browser/devtools/inspector.dtd b/brows
 +     from current node -->
 +<!ENTITY inspectorRemoveAttribute.label        "Remove Attribute">
 +<!ENTITY inspectorRemoveAttribute.accesskey    "R">
-+
+
  <!ENTITY inspector.selectButton.tooltip     "Select element with mouse">
 
  <!-- LOCALIZATION NOTE (inspectorSearchHTML.label2): This is the label shown as
@@ -49,11 +52,10 @@ diff --git a/browser/locales/en-US/chrome/browser/devtools/inspector.dtd b/brows
  <!ENTITY inspectorSearchHTML.label2          "Search with CSS Selectors">
  <!ENTITY inspectorSearchHTML.key            "F">
 
- <!-- LOCALIZATION NOTE (inspectorSearchHTML.label3): This is the label that will
 diff --git a/browser/locales/en-US/chrome/browser/devtools/inspector.properties b/browser/locales/en-US/chrome/browser/devtools/inspector.properties
 --- a/browser/locales/en-US/chrome/browser/devtools/inspector.properties
 +++ b/browser/locales/en-US/chrome/browser/devtools/inspector.properties
-@@ -99,8 +99,21 @@ inspector.menu.openUrlInNewTab.label=Ope
+@@ -99,8 +99,20 @@ inspector.menu.openUrlInNewTab.label=Ope
  inspector.menu.copyUrlToClipboard.label=Copy Link Address
 
  # LOCALIZATION NOTE (inspector.menu.selectElement.label): This is the label of a
@@ -67,7 +69,6 @@ diff --git a/browser/locales/en-US/chrome/browser/devtools/inspector.properties 
 +# sub-menu "Attribute" in the inspector contextual-menu that appears
 +# when the user right-clicks on the node in the inspector, and that allows
 +# to edit an attribute on this node.
-+
 +inspector.menu.editAttribute.label=Edit Attribute %S
 +
 +# LOCALIZATION NOTE (inspector.menu.removeAttribute.label): This is the label of a
@@ -78,8 +79,7 @@ diff --git a/browser/locales/en-US/chrome/browser/devtools/inspector.properties 
 diff --git a/devtools/client/inspector/inspector-panel.js b/devtools/client/inspector/inspector-panel.js
 --- a/devtools/client/inspector/inspector-panel.js
 +++ b/devtools/client/inspector/inspector-panel.js
-@@ -71,16 +71,17 @@ const LAYOUT_CHANGE_TIMER = 250;
-  *      to source-mapped files)
+@@ -72,16 +72,17 @@ const LAYOUT_CHANGE_TIMER = 250;
   */
  function InspectorPanel(iframeWindow, toolbox) {
    this._toolbox = toolbox;
@@ -87,8 +87,8 @@ diff --git a/devtools/client/inspector/inspector-panel.js b/devtools/client/insp
    this.panelDoc = iframeWindow.document;
    this.panelWin = iframeWindow;
    this.panelWin.inspector = this;
-+  this.nodeMenuTriggerInfo = null;
 
++  this.nodeMenuTriggerInfo = null;
    this._onBeforeNavigate = this._onBeforeNavigate.bind(this);
    this._target.on("will-navigate", this._onBeforeNavigate);
 
@@ -96,14 +96,19 @@ diff --git a/devtools/client/inspector/inspector-panel.js b/devtools/client/insp
  }
 
  exports.InspectorPanel = InspectorPanel;
-@@ -644,17 +645,21 @@ InspectorPanel.prototype = {
+
+@@ -642,19 +643,24 @@ InspectorPanel.prototype = {
+       if (content && content.trim().length > 0) {
+         return content;
        }
      }
      return null;
    },
 
    /**
-    * Disable the delete item if needed. Update the pseudo classes.
+-   * Disable the delete item if needed. Update the pseudo classes.
++   * Update, enable, disable, hide, show any menu item depending on the current
++   * element.
     */
 -  _setupNodeMenu: function() {
 +  _setupNodeMenu: function(event) {
@@ -115,11 +120,11 @@ diff --git a/devtools/client/inspector/inspector-panel.js b/devtools/client/insp
                               !this.selection.isPseudoElementNode();
      let isEditableElement = isSelectionElement &&
                              !this.selection.isAnonymousNode();
+     let isDuplicatableElement = isSelectionElement &&
+                                 !this.selection.isAnonymousNode() &&
+                                 !this.selection.isRoot();
      let isScreenshotable = isSelectionElement &&
-                            this.canGetUniqueSelector &&
-                            this.selection.nodeFront.isTreeDisplayed;
-
-@@ -687,19 +692,18 @@ InspectorPanel.prototype = {
+@@ -691,19 +697,18 @@ InspectorPanel.prototype = {
      let copyOuterHTML = this.panelDoc.getElementById("node-menu-copyouter");
      let scrollIntoView = this.panelDoc.getElementById("node-menu-scrollnodeintoview");
      let expandAll = this.panelDoc.getElementById("node-menu-expand");
@@ -138,10 +143,10 @@ diff --git a/devtools/client/inspector/inspector-panel.js b/devtools/client/insp
        expandAll.removeAttribute("disabled");
      }
 
-     this._target.actorHasMethod("domnode", "scrollIntoView").then(value => {
-       scrollIntoView.hidden = !value;
+     this._target.actorHasMethod("domwalker", "duplicateNode").then(value => {
+       duplicateNode.hidden = !value;
      });
-@@ -765,22 +769,62 @@ InspectorPanel.prototype = {
+@@ -779,22 +784,62 @@ InspectorPanel.prototype = {
        pasteAfter.disabled = true;
        pasteFirstChild.disabled = true;
        pasteLastChild.disabled = true;
@@ -205,7 +210,7 @@ diff --git a/devtools/client/inspector/inspector-panel.js b/devtools/client/insp
        let toDelete = this.lastNodemenuItem.nextSibling;
        toDelete.parentNode.removeChild(toDelete);
      }
-@@ -1191,16 +1235,43 @@ InspectorPanel.prototype = {
+@@ -1219,16 +1264,43 @@ InspectorPanel.prototype = {
      if (this.markup) {
        this.markup.deleteNode(this.selection.nodeFront);
      } else {
@@ -252,11 +257,11 @@ diff --git a/devtools/client/inspector/inspector-panel.js b/devtools/client/insp
 diff --git a/devtools/client/inspector/inspector.xul b/devtools/client/inspector/inspector.xul
 --- a/devtools/client/inspector/inspector.xul
 +++ b/devtools/client/inspector/inspector.xul
-@@ -102,16 +102,33 @@
-         oncommand="inspector.scrollNodeIntoView()"/>
-       <menuitem id="node-menu-screenshotnode"
-         label="&inspectorScreenshotNode.label;"
+@@ -105,16 +105,33 @@
          oncommand="inspector.screenshotNode()" />
+       <menuitem id="node-menu-duplicatenode"
+         label="&inspectorDuplicateNode.label;"
+         oncommand="inspector.duplicateNode()"/>
        <menuitem id="node-menu-delete"
          label="&inspectorHTMLDelete.label;"
          accesskey="&inspectorHTMLDelete.accesskey;"
@@ -289,7 +294,7 @@ diff --git a/devtools/client/inspector/inspector.xul b/devtools/client/inspector
 diff --git a/devtools/client/inspector/test/browser.ini b/devtools/client/inspector/test/browser.ini
 --- a/devtools/client/inspector/test/browser.ini
 +++ b/devtools/client/inspector/test/browser.ini
-@@ -80,17 +80,18 @@ skip-if = e10s # GCLI isn't e10s compati
+@@ -81,17 +81,18 @@ skip-if = e10s # GCLI isn't e10s compati
  [browser_inspector_inspect-object-element.js]
  [browser_inspector_invalidate.js]
  [browser_inspector_keyboard-shortcuts-copy-outerhtml.js]
@@ -556,6 +561,7 @@ new file mode 100644
 +
 +add_task(function* () {
 +  let { inspector, toolbox, testActor } = yield openInspectorForURL(TEST_URL);
++  yield selectNode("#attributes", inspector);
 +
 +  yield testAddAttribute();
 +  yield testEditAttribute();
@@ -563,9 +569,7 @@ new file mode 100644
 +
 +  function* testAddAttribute() {
 +    info("Testing 'Add Attribute' menu item");
-+    yield selectNode("#attributes", inspector);
-+    let addAttribute = inspector.panelDoc.getElementById("node-menu-add-attribute");
-+    ok(addAttribute, "the popup menu has a 'Add Attribute' item");
++    let addAttribute = getMenuItem("node-menu-add-attribute");
 +
 +    info("Triggering 'Add Attribute' and waiting for mutation to occur");
 +    dispatchCommandEvent(addAttribute);
@@ -580,10 +584,7 @@ new file mode 100644
 +
 +  function* testEditAttribute() {
 +    info("Testing 'Edit Attribute' menu item");
-+    yield selectNode("#attributes", inspector);
-+    let editAttribute = inspector.panelDoc.getElementById("node-menu-edit-attribute");
-+    let attributeSubmenu = inspector.panelDoc.getElementById("node-menu-attribute-submenu");
-+    ok(editAttribute, "the popup menu has a 'Edit Attribute' item");
++    let editAttribute = getMenuItem("node-menu-edit-attribute");
 +
 +    info("Triggering 'Edit Attribute' and waiting for mutation to occur");
 +    inspector.nodeMenuTriggerInfo = {
@@ -603,9 +604,7 @@ new file mode 100644
 +
 +  function* testRemoveAttribute() {
 +    info("Testing 'Remove Attribute' menu item");
-+    yield selectNode("#attributes", inspector);
-+    let removeAttribute = inspector.panelDoc.getElementById("node-menu-remove-attribute");
-+    ok(removeAttribute, "the popup menu has a 'Remove Attribute' item");
++    let removeAttribute = getMenuItem("node-menu-remove-attribute");
 +
 +    info("Triggering 'Remove Attribute' and waiting for mutation to occur");
 +    inspector.nodeMenuTriggerInfo = {
@@ -619,6 +618,12 @@ new file mode 100644
 +    let hasAttribute = yield testActor.hasNode("#attributes[data-remove]")
 +    ok(!hasAttribute, "attribute was successfully removed");
 +  }
++
++  function getMenuItem(id) {
++    let attribute = inspector.panelDoc.getElementById(id);
++    ok(attribute, "Menu item '" + id + "' found");
++    return attribute;
++  }
 +});
 diff --git a/devtools/client/inspector/test/browser_inspector_menu-05-other.js b/devtools/client/inspector/test/browser_inspector_menu-06-other.js
 rename from devtools/client/inspector/test/browser_inspector_menu-05-other.js
@@ -626,8 +631,8 @@ rename to devtools/client/inspector/test/browser_inspector_menu-06-other.js
 diff --git a/devtools/client/inspector/test/doc_inspector_menu.html b/devtools/client/inspector/test/doc_inspector_menu.html
 --- a/devtools/client/inspector/test/doc_inspector_menu.html
 +++ b/devtools/client/inspector/test/doc_inspector_menu.html
-@@ -17,11 +17,12 @@
-       <p id="sensitivity">Paragraph for sensitivity</p>
+@@ -18,11 +18,12 @@
+       <p class="duplicate">This will be duplicated</p>
        <p id="delete">This has to be deleted</p>
        <img id="copyimage" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAAAAAA6fptVAAAACklEQVQYV2P4DwABAQEAWk1v8QAAAABJRU5ErkJggg==" />
        <div id="hiddenElement" style="display: none;">
@@ -642,7 +647,7 @@ diff --git a/devtools/client/inspector/test/doc_inspector_menu.html b/devtools/c
 diff --git a/devtools/client/markupview/markup-view.js b/devtools/client/markupview/markup-view.js
 --- a/devtools/client/markupview/markup-view.js
 +++ b/devtools/client/markupview/markup-view.js
-@@ -2299,16 +2299,46 @@ MarkupElementContainer.prototype = Herit
+@@ -2300,16 +2300,46 @@ MarkupElementContainer.prototype = Herit
    setSingleTextChild: function(singleTextChild) {
      this.singleTextChild = singleTextChild;
      this.editor.updateTextEditor();
@@ -689,7 +694,7 @@ diff --git a/devtools/client/markupview/markup-view.js b/devtools/client/markupv
   */
  function RootContainer(aMarkupView, aNode) {
    this.doc = aMarkupView.doc;
-@@ -2355,16 +2385,23 @@ function GenericEditor(aContainer, aNode
+@@ -2356,16 +2386,23 @@ function GenericEditor(aContainer, aNode
    } else {
      this.tag.textContent = aNode.nodeName;
    }
@@ -713,7 +718,7 @@ diff --git a/devtools/client/markupview/markup-view.js b/devtools/client/markupv
   * nodes.
   *
   * @param MarkupContainer aContainer The container owning this editor.
-@@ -2437,17 +2474,24 @@ TextEditor.prototype = {
+@@ -2438,17 +2475,24 @@ TextEditor.prototype = {
          if (this.selected) {
            this.value.textContent = str;
            this.markup.emit("text-expand")
@@ -739,7 +744,7 @@ diff --git a/devtools/client/markupview/markup-view.js b/devtools/client/markupv
   * @param MarkupContainer aContainer The container owning this editor.
   * @param Element aNode The node being edited.
   */
-@@ -2491,28 +2535,24 @@ function ElementEditor(aContainer, aNode
+@@ -2492,28 +2536,24 @@ function ElementEditor(aContainer, aNode
      stopOnReturn: true,
      contentType: InplaceEditor.CONTENT_TYPES.CSS_MIXED,
      popup: this.markup.popup,
@@ -776,15 +781,16 @@ diff --git a/devtools/client/markupview/markup-view.js b/devtools/client/markupv
    this.closeTag.textContent = tagName;
    this.eventNode.style.display = this.node.hasEventListeners ? "inline-block" : "none";
 
-@@ -2536,16 +2576,46 @@ ElementEditor.prototype = {
+@@ -2535,16 +2575,45 @@ ElementEditor.prototype = {
+     }
+
      flashElementOn(this.getAttributeElement(attrName));
 
      this.animationTimers[attrName] = setTimeout(() => {
        flashElementOff(this.getAttributeElement(attrName));
      }, this.markup.CONTAINER_FLASHING_DURATION);
    },
-
-   /**
++  /**
 +   * Returns information about node in the editor.
 +   *
 +   * @param {DOMNode} node
@@ -813,17 +819,15 @@ diff --git a/devtools/client/markupview/markup-view.js b/devtools/client/markupv
 +
 +    return {type, name, value, el: node};
 +  },
-+
-+  /**
+
+   /**
     * Update the state of the editor from the node.
     */
    update: function() {
      let nodeAttributes = this.node.attributes || [];
 
      // Keep the data model in sync with attributes on the node.
-     let currentAttributes = new Set(nodeAttributes.map(a=>a.name));
-     for (let name of this.attrElements.keys()) {
-@@ -2691,29 +2761,25 @@ ElementEditor.prototype = {
+@@ -2692,29 +2761,25 @@ ElementEditor.prototype = {
          }
 
          let doMods = this._startModifyingAttributes();
