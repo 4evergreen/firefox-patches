@@ -1,0 +1,359 @@
+# HG changeset patch
+# User Grisha Pushkov <grisha@push.org.ru>
+# Parent  f95c614295a0971529da8c0c93d28718e7c4c5bd
+Bug 1093593 - Order of attributes in markup view depends on input order
+
+diff --git a/devtools/client/markupview/markup-view.js b/devtools/client/markupview/markup-view.js
+--- a/devtools/client/markupview/markup-view.js
++++ b/devtools/client/markupview/markup-view.js
+@@ -2719,17 +2719,17 @@ ElementEditor.prototype = {
+   removeAttribute: function(attrName) {
+     let attr = this.attrElements.get(attrName);
+     if (attr) {
+       this.attrElements.delete(attrName);
+       attr.remove();
+     }
+   },
+ 
+-  _createAttribute: function(aAttr, aBefore = null) {
++  _createAttribute: function(aAttr) {
+     // Create the template editor, which will save some variables here.
+     let data = {
+       attrName: aAttr.name,
+     };
+     this.template("attribute", data);
+     let {attr, inner, name, val} = data;
+ 
+     // Double quotes need to be handled specially to prevent DOMParser failing.
+@@ -2792,28 +2792,19 @@ ElementEditor.prototype = {
+         this.container.undo.do(() => {
+           doMods.apply();
+         }, () => {
+           undoMods.apply();
+         });
+       }
+     });
+ 
+-    // Figure out where we should place the attribute.
+-    let before = aBefore;
+-    if (aAttr.name == "id") {
+-      before = this.attrList.firstChild;
+-    } else if (aAttr.name == "class") {
+-      let idNode = this.attrElements.get("id");
+-      before = idNode ? idNode.nextSibling : this.attrList.firstChild;
+-    }
+-    this.attrList.insertBefore(attr, before);
+-
+     this.removeAttribute(aAttr.name);
+     this.attrElements.set(aAttr.name, attr);
++    this.insertAttribute(aAttr.name, attr);
+ 
+     // Parse the attribute value to detect whether there are linkable parts in
+     // it (make sure to pass a complete list of existing attributes to the
+     // parseAttribute function, by concatenating aAttr, because this could be a
+     // newly added attribute not yet on this.node).
+     let attributes = this.node.attributes.filter(({name}) => name !== aAttr.name);
+     attributes.push(aAttr);
+     let parsedLinksData = parseAttribute(this.node.namespaceURI,
+@@ -2843,29 +2834,57 @@ ElementEditor.prototype = {
+     }
+ 
+     name.textContent = aAttr.name;
+ 
+     return attr;
+   },
+ 
+   /**
++   * Insert attribute into editor's attributes list.
++   * Attributes are sorted in the following order:
++   * - "id"
++   * - "class"
++   * - remaining attributes sorted alphabetically
++   *
++   * @param {String} attrName
++   * @param {DOMNode} attr
++   */
++  insertAttribute: function(attrName, attr) {
++    let before = null;
++
++    if (attrName == "id") {
++      before = this.attrList.firstChild;
++    } else if (attrName == "class") {
++      let idNode = this.attrElements.get("id");
++      before = idNode ? idNode.nextSibling : this.attrList.firstChild;
++    } else {
++      before = this.attrList.firstChild;
++      while (before &&
++            (before.getAttribute('data-attr') < attrName ||
++             before.getAttribute('data-attr').search(/(id|class)$/) === 0)) {
++        before = before.nextSibling;
++      }
++    }
++    this.attrList.insertBefore(attr, before);
++  },
++
++  /**
+    * Parse a user-entered attribute string and apply the resulting
+    * attributes to the node.  This operation is undoable.
+    *
+    * @param string aValue the user-entered value.
+    * @param Element aAttrNode the attribute editor that created this
+    *        set of attributes, used to place new attributes where the
+    *        user put them.
+    */
+   _applyAttributes: function(aValue, aAttrNode, aDoMods, aUndoMods) {
+     let attrs = parseAttributeValues(aValue, this.doc);
+     for (let attr of attrs) {
+-      // Create an attribute editor next to the current attribute if needed.
+-      this._createAttribute(attr, aAttrNode ? aAttrNode.nextSibling : null);
++      this._createAttribute(attr);
+       this._saveAttribute(attr.name, aUndoMods);
+       aDoMods.setAttribute(attr.name, attr.value);
+     }
+   },
+ 
+   /**
+    * Saves the current state of the given attribute into an attribute
+    * modification list.
+diff --git a/devtools/client/markupview/test/browser.ini b/devtools/client/markupview/test/browser.ini
+--- a/devtools/client/markupview/test/browser.ini
++++ b/devtools/client/markupview/test/browser.ini
+@@ -111,13 +111,14 @@ skip-if = e10s # Bug 1036409 - The last 
+ [browser_markupview_tag_edit_05.js]
+ [browser_markupview_tag_edit_06.js]
+ [browser_markupview_tag_edit_07.js]
+ [browser_markupview_tag_edit_08.js]
+ [browser_markupview_tag_edit_09.js]
+ [browser_markupview_tag_edit_10.js]
+ [browser_markupview_tag_edit_11.js]
+ [browser_markupview_tag_edit_12.js]
++[browser_markupview_tag_edit_13.js]
+ [browser_markupview_textcontent_edit_01.js]
+ [browser_markupview_toggle_01.js]
+ [browser_markupview_toggle_02.js]
+ [browser_markupview_toggle_03.js]
+ [browser_markupview_update-on-navigtion.js]
+diff --git a/devtools/client/markupview/test/browser_markupview_keybindings_01.js b/devtools/client/markupview/test/browser_markupview_keybindings_01.js
+--- a/devtools/client/markupview/test/browser_markupview_keybindings_01.js
++++ b/devtools/client/markupview/test/browser_markupview_keybindings_01.js
+@@ -20,28 +20,28 @@ add_task(function*() {
+   checkFocusedAttribute("id");
+ 
+   info("Hit enter to turn the attribute to edit mode");
+   EventUtils.sendKey("return", inspector.panelWin);
+   checkFocusedAttribute("id", true);
+ 
+   // Check the order of the other attributes in the DOM to the check they appear
+   // correctly in the markup-view
+-  let attributes = [...getNode("div").attributes].filter(attr => attr.name !== "id");
++  let attributes = (yield getAttributesFromEditor("div", inspector)).slice(1);
+ 
+   info("Tabbing forward through attributes in edit mode");
+-  for (let {name} of attributes) {
++  for (let attribute of attributes) {
+     collapseSelectionAndTab(inspector);
+-    checkFocusedAttribute(name, true);
++    checkFocusedAttribute(attribute, true);
+   }
+ 
+   info("Tabbing backward through attributes in edit mode");
+ 
+   // Just reverse the attributes other than id and remove the first one since
+   // it's already focused now.
+   let reverseAttributes = attributes.reverse();
+   reverseAttributes.shift();
+ 
+-  for (let {name} of reverseAttributes) {
++  for (let attribute of reverseAttributes) {
+     collapseSelectionAndShiftTab(inspector);
+-    checkFocusedAttribute(name, true);
++    checkFocusedAttribute(attribute, true);
+   }
+ });
+diff --git a/devtools/client/markupview/test/browser_markupview_tag_edit_12.js b/devtools/client/markupview/test/browser_markupview_tag_edit_12.js
+--- a/devtools/client/markupview/test/browser_markupview_tag_edit_12.js
++++ b/devtools/client/markupview/test/browser_markupview_tag_edit_12.js
+@@ -2,84 +2,62 @@
+ /* Any copyright is dedicated to the Public Domain.
+  http://creativecommons.org/publicdomain/zero/1.0/ */
+ 
+ "use strict";
+ 
+ // Tests that focus position is correct when tabbing through and editing
+ // attributes.
+ 
+-const TEST_URL = "data:text/html;charset=utf8,<div id='attr' c='3' b='2' a='1'></div><div id='delattr' last='1' tobeinvalid='2'></div>";
++const TEST_URL = "data:text/html;charset=utf8,<div id='attr' a='1' b='2' c='3'></div><div id='delattr' last='1' tobeinvalid='2'></div>";
+ 
+ add_task(function*() {
+   let {inspector} = yield addTab(TEST_URL).then(openInspector);
+ 
+   yield testAttributeEditing(inspector);
+   yield testAttributeDeletion(inspector);
+ });
+ 
+ function* testAttributeEditing(inspector) {
+   info("Testing focus position after attribute editing");
+ 
+-  // Modifying attributes reorders them in the internal representation to move
+-  // the modified attribute to the end. breadcrumbs.js will update attributes
+-  // to match original order if you selectNode before modifying attributes.
+-  // So, hacky workaround for consistency with manual testing.
+-  // Should be removed after Bug 1093593.
+-  yield selectNode("#attr", inspector);
+-
+   info("Setting the first non-id attribute in edit mode");
+   yield activateFirstAttribute("#attr", inspector); // focuses id
+   collapseSelectionAndTab(inspector); // focuses the first attr after id
+ 
+-  // Detect the attributes order from the DOM, instead of assuming an order in
+-  // the test, because the NamedNodeMap returned by element.attributes doesn't
+-  // guaranty any specific order.
+-  // Filter out the id attribute as the markup-view places it first anyway.
+-  let attrs = getNodeAttributesOtherThanId("#attr");
++  let attrs = yield getAttributesFromEditor("#attr", inspector);
+ 
+   info("Editing this attribute, keeping the same name, and tabbing to the next");
+-  yield editAttributeAndTab(attrs[0].name + '="99"', inspector);
+-  checkFocusedAttribute(attrs[1].name, true);
++  yield editAttributeAndTab(attrs[1] + '="99"', inspector);
++  checkFocusedAttribute(attrs[2], true);
+ 
+   info("Editing the new focused attribute, keeping the name, and tabbing to the previous");
+-  yield editAttributeAndTab(attrs[1].name + '="99"', inspector, true);
+-  checkFocusedAttribute(attrs[0].name, true);
++  yield editAttributeAndTab(attrs[2] + '="99"', inspector, true);
++  checkFocusedAttribute(attrs[1], true);
+ 
+   info("Editing attribute name, changes attribute order");
+   yield editAttributeAndTab("d='4'", inspector);
+   checkFocusedAttribute("id", true);
+ 
+   // Escape of the currently focused field for the next test
+   EventUtils.sendKey("escape", inspector.panelWin);
+ }
+ 
+ function* testAttributeDeletion(inspector) {
+   info("Testing focus position after attribute deletion");
+ 
+-  // Modifying attributes reorders them in the internal representation to move
+-  // the modified attribute to the end. breadcrumbs.js will update attributes
+-  // to match original order if you selectNode before modifying attributes.
+-  // So, hacky workaround for consistency with manual testing.
+-  // Should be removed after Bug 1093593.
+-  yield selectNode("#delattr", inspector);
+-
+   info("Setting the first non-id attribute in edit mode");
+   yield activateFirstAttribute("#delattr", inspector); // focuses id
+   collapseSelectionAndTab(inspector); // focuses the first attr after id
+ 
+-  // Detect the attributes order from the DOM, instead of assuming an order in
+-  // the test, because the NamedNodeMap returned by element.attributes doesn't
+-  // guaranty any specific order.
+-  // Filter out the id attribute as the markup-view places it first anyway.
+-  let attrs = getNodeAttributesOtherThanId("#delattr");
++  let attrs = yield getAttributesFromEditor("#delattr", inspector);
+ 
+   info("Entering an invalid attribute to delete the attribute");
+   yield editAttributeAndTab('"', inspector);
+-  checkFocusedAttribute(attrs[1].name, true);
++  checkFocusedAttribute(attrs[2], true);
+ 
+   info("Deleting the last attribute");
+   yield editAttributeAndTab(" ", inspector);
+ 
+   // Check we're on the newattr element
+   let focusedAttr = Services.focus.focusedElement;
+   ok(focusedAttr.classList.contains("styleinspector-propertyeditor"), "in newattr");
+   is(focusedAttr.tagName, "input", "newattr is active");
+@@ -104,12 +82,8 @@ function* editAttributeAndTab(newValue, 
+ function* activateFirstAttribute(container, inspector) {
+   let {editor} = yield getContainerForSelector(container, inspector);
+   editor.tag.focus();
+ 
+   // Go to "id" attribute and trigger edit mode.
+   EventUtils.sendKey("tab", inspector.panelWin);
+   EventUtils.sendKey("return", inspector.panelWin);
+ }
+-
+-function getNodeAttributesOtherThanId(selector) {
+-  return [...getNode(selector).attributes].filter(attr => attr.name !== "id");
+-}
+diff --git a/devtools/client/markupview/test/browser_markupview_tag_edit_13.js b/devtools/client/markupview/test/browser_markupview_tag_edit_13.js
+new file mode 100644
+--- /dev/null
++++ b/devtools/client/markupview/test/browser_markupview_tag_edit_13.js
+@@ -0,0 +1,37 @@
++/* vim: set ts=2 et sw=2 tw=80: */
++/* Any copyright is dedicated to the Public Domain.
++ http://creativecommons.org/publicdomain/zero/1.0/ */
++
++"use strict";
++
++// Tests that attributes are sorted in the following order:
++// - "id"
++// - "class"
++// - remaining attributes sorted alphabetically
++
++const TEST_URL = "data:text/html;charset=utf8,<div c='' id='' b=''></div>";
++
++add_task(function*() {
++  let {inspector} = yield addTab(TEST_URL).then(openInspector);
++  let attributes;
++
++  yield selectNode("div", inspector);
++
++  info("Node has initially sorted attributes");
++  attributes = yield getAttributesFromEditor("div", inspector);
++  ok(isEqual(attributes, ["id", "b", "c"]), "sorted initially");
++
++  info("Attributes other than 'id' or 'class' are sorted alphabetically");
++  yield addNewAttributes("div", "a", inspector);
++  attributes = yield getAttributesFromEditor("div", inspector);
++  ok(isEqual(attributes, ["id", "a", "b", "c"]), "sorted alphabetically");
++
++  info("Attribute 'class' should be inserted after 'id'");
++  addNewAttributes("div", "class", inspector);
++  attributes = yield getAttributesFromEditor("div", inspector);
++  ok(isEqual(attributes, ["id", "class", "a", "b", "c"]), "inserted after 'id'");
++});
++
++function isEqual(a, b) {
++  return a.toString() === b.toString();
++}
+diff --git a/devtools/client/markupview/test/head.js b/devtools/client/markupview/test/head.js
+--- a/devtools/client/markupview/test/head.js
++++ b/devtools/client/markupview/test/head.js
+@@ -653,16 +653,32 @@ function checkFocusedAttribute(attrName,
+   let focusedAttr = Services.focus.focusedElement;
+   is(focusedAttr ? focusedAttr.parentNode.dataset.attr : undefined,
+     attrName, attrName + " attribute editor is currently focused.");
+   is(focusedAttr ? focusedAttr.tagName : undefined,
+     editMode ? "input": "span",
+     editMode ? attrName + " is in edit mode" : attrName + " is not in edit mode");
+ }
+ 
++/**
++ * Get attributes for node as how they are represented in editor.
++ *
++ * @param  {String} selector
++ * @param  {InspectorPanel} inspector
++ * @return {Promise}
++ *         A promise that resolves with an array of attribute names
++ *         (e.g. ["id", "class", "href"])
++ */
++var getAttributesFromEditor = Task.async(function*(selector, inspector) {
++  let nodeList = (yield getContainerForSelector(selector, inspector))
++    .tagLine.querySelectorAll('[data-attr]');
++
++  return [...nodeList].map(node => node.getAttribute('data-attr'));
++})
++
+ // The expand all operation of the markup-view calls itself recursively and
+ // there's not one event we can wait for to know when it's done
+ // so use this helper function to wait until all recursive children updates are done.
+ function* waitForMultipleChildrenUpdates(inspector) {
+   // As long as child updates are queued up while we wait for an update already
+   // wait again
+   if (inspector.markup._queuedChildUpdates &&
+       inspector.markup._queuedChildUpdates.size) {
