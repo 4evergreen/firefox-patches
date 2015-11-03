@@ -1,0 +1,122 @@
+# HG changeset patch
+# User Grisha Pushkov <grisha@push.org.ru>
+# Parent  f95c614295a0971529da8c0c93d28718e7c4c5bd
+Bug 1090871 - Focus next editable field after pressing tab in the tagname editable field
+
+diff --git a/devtools/client/markupview/markup-view.js b/devtools/client/markupview/markup-view.js
+--- a/devtools/client/markupview/markup-view.js
++++ b/devtools/client/markupview/markup-view.js
+@@ -14,17 +14,17 @@ const COLLAPSE_DATA_URL_REGEX = /^data.+
+ const COLLAPSE_DATA_URL_LENGTH = 60;
+ const NEW_SELECTION_HIGHLIGHTER_TIMER = 1000;
+ const DRAG_DROP_AUTOSCROLL_EDGE_DISTANCE = 50;
+ const DRAG_DROP_MIN_AUTOSCROLL_SPEED = 5;
+ const DRAG_DROP_MAX_AUTOSCROLL_SPEED = 15;
+ const AUTOCOMPLETE_POPUP_PANEL_ID = "markupview_autoCompletePopup";
+ 
+ const {UndoStack} = require("devtools/client/shared/undo");
+-const {editableField, InplaceEditor} = require("devtools/client/shared/inplace-editor");
++const {editableField, InplaceEditor, moveFocus} = require("devtools/client/shared/inplace-editor");
+ const {gDevTools} = Cu.import("resource://devtools/client/framework/gDevTools.jsm", {});
+ const {HTMLEditor} = require("devtools/client/markupview/html-editor");
+ const promise = require("promise");
+ const {Tooltip} = require("devtools/client/shared/widgets/Tooltip");
+ const EventEmitter = require("devtools/shared/event-emitter");
+ const Heritage = require("sdk/core/heritage");
+ const {setTimeout, clearTimeout, setInterval, clearInterval} = require("sdk/timers");
+ const {parseAttribute} = require("devtools/client/shared/node-attribute-parser");
+@@ -1108,24 +1108,26 @@ MarkupView.prototype = {
+       }
+ 
+       this._inspector.off("markupmutation", onMutations);
+       this._removedNodeObserver = null;
+ 
+       // Don't select the new node if the user has already changed the current
+       // selection.
+       if (this._inspector.selection.nodeFront === parentContainer.node ||
+-          (this._inspector.selection.nodeFront === removedNode && isHTMLTag)) {
++         (this._inspector.selection.nodeFront === removedNode && isHTMLTag)) {
+         let childContainers = parentContainer.getChildContainers();
+         if (childContainers && childContainers[childIndex]) {
+-          this.markNodeAsSelected(childContainers[childIndex].node, reason);
+-          if (childContainers[childIndex].hasChildren) {
+-            this.expandNode(childContainers[childIndex].node);
++          let container = childContainers[childIndex];
++
++          this.markNodeAsSelected(container.node, reason);
++          if (container.hasChildren) {
++            this.expandNode(container.node);
+           }
+-          this.emit("reselectedonremoved");
++          this.emit("reselectedonremoved", container);
+         }
+       }
+     };
+ 
+     // Start listening for mutations until we find a childList change that has
+     // removedNode removed.
+     this._inspector.on("markupmutation", onMutations);
+   },
+@@ -2969,29 +2971,39 @@ ElementEditor.prototype = {
+     // Start listening for mutations until we find an attributes change
+     // that modifies this attribute.
+     this.markup._inspector.once("markupmutation", onMutations);
+   },
+ 
+   /**
+    * Called when the tag name editor has is done editing.
+    */
+-  onTagEdit: function(newTagName, isCommit) {
++  onTagEdit: function(newTagName, isCommit, direction) {
+     if (!isCommit || newTagName.toLowerCase() === this.node.tagName.toLowerCase() ||
+         !("editTagName" in this.markup.walker)) {
+       return;
+     }
+ 
+     // Changing the tagName removes the node. Make sure the replacing node gets
+     // selected afterwards.
+     this.markup.reselectOnRemoved(this.node, "edittagname");
+     this.markup.walker.editTagName(this.node, newTagName).then(null, () => {
+       // Failed to edit the tag name, cancel the reselection.
+       this.markup.cancelReselectOnRemoved();
+     });
++
++    // Set attribute or new attribute field for editing.
++    this.markup.once("reselectedonremoved", (e, container) => {
++      if (direction == Ci.nsIFocusManager.MOVEFOCUS_FORWARD) {
++        container.editor.attrList.childNodes[0].editMode();
++      } else
++      if (direction == Ci.nsIFocusManager.MOVEFOCUS_BACKWARD) {
++        moveFocus(container.editor.doc, Ci.nsIFocusManager.MOVEFOCUS_BACKWARD);
++      }
++    });
+   },
+ 
+   destroy: function() {
+     for (let key in this.animationTimers) {
+       clearTimeout(this.animationTimers[key]);
+     }
+     this.animationTimers = null;
+   }
+diff --git a/devtools/client/shared/inplace-editor.js b/devtools/client/shared/inplace-editor.js
+--- a/devtools/client/shared/inplace-editor.js
++++ b/devtools/client/shared/inplace-editor.js
+@@ -1233,16 +1233,18 @@ function copyTextStyles(from, to) {
+ 
+ /**
+  * Trigger a focus change similar to pressing tab/shift-tab.
+  */
+ function moveFocus(win, direction) {
+   return focusManager.moveFocus(win, null, direction, 0);
+ }
+ 
++exports.moveFocus = moveFocus;
++
+ XPCOMUtils.defineLazyGetter(this, "focusManager", function() {
+   return Services.focus;
+ });
+ 
+ XPCOMUtils.defineLazyGetter(this, "CSSPropertyList", function() {
+   return domUtils.getCSSPropertyNames(domUtils.INCLUDE_ALIASES).sort();
+ });
+ 
