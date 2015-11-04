@@ -57,7 +57,7 @@ diff --git a/devtools/client/markupview/markup-view.js b/devtools/client/markupv
      // removedNode removed.
      this._inspector.on("markupmutation", onMutations);
    },
-@@ -2969,29 +2971,39 @@ ElementEditor.prototype = {
+@@ -2969,29 +2971,38 @@ ElementEditor.prototype = {
      // Start listening for mutations until we find an attributes change
      // that modifies this attribute.
      this.markup._inspector.once("markupmutation", onMutations);
@@ -81,14 +81,13 @@ diff --git a/devtools/client/markupview/markup-view.js b/devtools/client/markupv
        this.markup.cancelReselectOnRemoved();
      });
 +
-+    // Set attribute or new attribute field for editing.
++    // Focus tag on Enter or next editable field on Tab / Shift + Tab.
 +    this.markup.once("reselectedonremoved", (e, container) => {
-+      if (direction == Ci.nsIFocusManager.MOVEFOCUS_FORWARD) {
-+        container.editor.attrList.childNodes[0].editMode();
-+      } else
-+      if (direction == Ci.nsIFocusManager.MOVEFOCUS_BACKWARD) {
-+        moveFocus(container.editor.doc, Ci.nsIFocusManager.MOVEFOCUS_BACKWARD);
++      container.editor.tag.focus();
++      if (direction) {
++        moveFocus(container.editor.doc, direction, true);
 +      }
++      this.markup.emit("refocusedonremoved");
 +    });
    },
  
@@ -98,16 +97,280 @@ diff --git a/devtools/client/markupview/markup-view.js b/devtools/client/markupv
      }
      this.animationTimers = null;
    }
+diff --git a/devtools/client/markupview/test/browser.ini b/devtools/client/markupview/test/browser.ini
+--- a/devtools/client/markupview/test/browser.ini
++++ b/devtools/client/markupview/test/browser.ini
+@@ -110,14 +110,14 @@ skip-if = e10s # Bug 1036409 - The last 
+ [browser_markupview_tag_edit_04.js]
+ [browser_markupview_tag_edit_05.js]
+ [browser_markupview_tag_edit_06.js]
+ [browser_markupview_tag_edit_07.js]
+ [browser_markupview_tag_edit_08.js]
+ [browser_markupview_tag_edit_09.js]
+ [browser_markupview_tag_edit_10.js]
+ [browser_markupview_tag_edit_11.js]
+-[browser_markupview_tag_edit_12.js]
++[browser_markupview_tag_edit_12-focus-position.js]
+ [browser_markupview_textcontent_edit_01.js]
+ [browser_markupview_toggle_01.js]
+ [browser_markupview_toggle_02.js]
+ [browser_markupview_toggle_03.js]
+ [browser_markupview_update-on-navigtion.js]
+diff --git a/devtools/client/markupview/test/browser_markupview_tag_edit_12.js b/devtools/client/markupview/test/browser_markupview_tag_edit_12-focus-position.js
+rename from devtools/client/markupview/test/browser_markupview_tag_edit_12.js
+rename to devtools/client/markupview/test/browser_markupview_tag_edit_12-focus-position.js
+--- a/devtools/client/markupview/test/browser_markupview_tag_edit_12.js
++++ b/devtools/client/markupview/test/browser_markupview_tag_edit_12-focus-position.js
+@@ -2,23 +2,29 @@
+ /* Any copyright is dedicated to the Public Domain.
+  http://creativecommons.org/publicdomain/zero/1.0/ */
+ 
+ "use strict";
+ 
+ // Tests that focus position is correct when tabbing through and editing
+ // attributes.
+ 
+-const TEST_URL = "data:text/html;charset=utf8,<div id='attr' c='3' b='2' a='1'></div><div id='delattr' last='1' tobeinvalid='2'></div>";
++const TEST_URL = `
++  data:text/html;charset=utf8,
++  <div id='attr' c='3' b='2' a='1'></div>
++  <div id='delattr' last='1' tobeinvalid='2'></div>
++  <span></span>
++  <div id='with-attributes'></div>`;
+ 
+ add_task(function*() {
+   let {inspector} = yield addTab(TEST_URL).then(openInspector);
+ 
+   yield testAttributeEditing(inspector);
+   yield testAttributeDeletion(inspector);
++  yield testTagRenaming(inspector);
+ });
+ 
+ function* testAttributeEditing(inspector) {
+   info("Testing focus position after attribute editing");
+ 
+   // Modifying attributes reorders them in the internal representation to move
+   // the modified attribute to the end. breadcrumbs.js will update attributes
+   // to match original order if you selectNode before modifying attributes.
+@@ -73,43 +79,89 @@ function* testAttributeDeletion(inspecto
+   let attrs = getNodeAttributesOtherThanId("#delattr");
+ 
+   info("Entering an invalid attribute to delete the attribute");
+   yield editAttributeAndTab('"', inspector);
+   checkFocusedAttribute(attrs[1].name, true);
+ 
+   info("Deleting the last attribute");
+   yield editAttributeAndTab(" ", inspector);
++  checkNewAttrIsActive();
++}
+ 
+-  // Check we're on the newattr element
+-  let focusedAttr = Services.focus.focusedElement;
+-  ok(focusedAttr.classList.contains("styleinspector-propertyeditor"), "in newattr");
+-  is(focusedAttr.tagName, "input", "newattr is active");
++function* testTagRenaming(inspector) {
++  const MOVEFOCUS_FORWARD = Ci.nsIFocusManager.MOVEFOCUS_FORWARD;
++  const MOVEFOCUS_BACKWARD = Ci.nsIFocusManager.MOVEFOCUS_BACKWARD;
++
++  info("Testing focus position after tag renaming");
++
++  info("Editing tag for node wihout attributes and tabbing forward");
++  yield selectNode("span", inspector);
++  yield editTag("span", "div", inspector, MOVEFOCUS_FORWARD);
++  checkNewAttrIsActive();
++
++  info("Editing tag for node with attributes and tabbing forward");
++  yield selectNode("#with-attributes", inspector);
++  yield editTag("#with-attributes", "span", inspector, MOVEFOCUS_FORWARD);
++  checkFocusedAttribute("id", true);
++
++  info("Editing tag and tabbing backward");
++  yield selectNode("#with-attributes", inspector);
++  yield editTag("#with-attributes", "div", inspector, MOVEFOCUS_BACKWARD);
++  checkNewAttrIsActive();
++
++  info("Editing tag and pressing Enter");
++  yield selectNode("#with-attributes", inspector);
++  yield editTag("#with-attributes", "span", inspector);
++  yield checkTagIsFocused("#with-attributes", inspector);
+ }
+ 
+ function* editAttributeAndTab(newValue, inspector, goPrevious) {
+   var onEditMutation = inspector.markup.once("refocusedonedit");
+   inspector.markup.doc.activeElement.value = newValue;
+   if (goPrevious) {
+     EventUtils.synthesizeKey("VK_TAB", { shiftKey: true },
+       inspector.panelWin);
+   } else {
+     EventUtils.sendKey("tab", inspector.panelWin);
+   }
+   yield onEditMutation;
+ }
+ 
++function* editTag(selector, value, inspector, direction) {
++  let container = yield getContainerForSelector(selector, inspector);
++  let onRefocused = container.markup.once("refocusedonremoved");
++  setEditableFieldValue(container.editor.tag, value, inspector, direction);
++  yield onRefocused;
++}
++
+ /**
+- * Given a markup container, focus and turn in edit mode its first attribute
++ * Given an element's selector, focus and turn in edit mode its first attribute
+  * field.
+  */
+-function* activateFirstAttribute(container, inspector) {
+-  let {editor} = yield getContainerForSelector(container, inspector);
++function* activateFirstAttribute(selector, inspector) {
++  let {editor} = yield getContainerForSelector(selector, inspector);
+   editor.tag.focus();
+ 
+   // Go to "id" attribute and trigger edit mode.
+   EventUtils.sendKey("tab", inspector.panelWin);
+   EventUtils.sendKey("return", inspector.panelWin);
+ }
+ 
+ function getNodeAttributesOtherThanId(selector) {
+   return [...getNode(selector).attributes].filter(attr => attr.name !== "id");
+ }
++
++function checkNewAttrIsActive() {
++  let focusedElement = Services.focus.focusedElement;
++  let isNewAttr = focusedElement.classList.contains("styleinspector-propertyeditor");
++  let isActive = focusedElement.tagName === "input";
++
++  ok(isNewAttr && isActive, "newAttr is active");
++}
++
++function* checkTagIsFocused(selector, inspector) {
++  let {editor} = yield getContainerForSelector(selector, inspector);
++  let focusedElement = Services.focus.focusedElement;
++  let isFocused = focusedElement === editor.tag;
++
++  ok(isFocused, "tag is focused");
++}
+diff --git a/devtools/client/markupview/test/head.js b/devtools/client/markupview/test/head.js
+--- a/devtools/client/markupview/test/head.js
++++ b/devtools/client/markupview/test/head.js
+@@ -353,30 +353,42 @@ var clickContainer = Task.async(function
+  */
+ function isHighlighterVisible() {
+   let highlighter = gBrowser.selectedBrowser.parentNode
+                             .querySelector(".highlighter-container .box-model-root");
+   return highlighter && !highlighter.hasAttribute("hidden");
+ }
+ 
+ /**
+- * Focus a given editable element, enter edit mode, set value, and commit
+- * @param {DOMNode} field The element that gets editable after receiving focus
+- * and <ENTER> keypress
+- * @param {String} value The string value to be set into the edited field
+- * @param {InspectorPanel} inspector The instance of InspectorPanel currently
+- * loaded in the toolbox
++ * Focus a given editable element, enter edit mode, set value, and commit.
++ *
++ * @param  {DOMNode} field
++ *         The element that gets editable after receiving focus
++ *         and Enter keypress.
++ * @param  {String} value
++ *         The string value to be set into the edited field.
++ * @param  {InspectorPanel} inspector
++ *         The instance of InspectorPanel currently loaded in the toolbox.
++ * @param  {direction}
++ *         Search for Ci.nsIFocusManager constants.
+  */
+-function setEditableFieldValue(field, value, inspector) {
++function setEditableFieldValue(field, value, inspector, direction) {
+   field.focus();
+   EventUtils.sendKey("return", inspector.panelWin);
+   let input = inplaceEditor(field).input;
+   ok(input, "Found editable field for setting value: " + value);
+   input.value = value;
+-  EventUtils.sendKey("return", inspector.panelWin);
++
++  if (direction === Ci.nsIFocusManager.MOVEFOCUS_FORWARD) {
++    EventUtils.sendKey("tab", inspector.panelWin);
++  } else if (direction === Ci.nsIFocusManager.MOVEFOCUS_BACKWARD) {
++    EventUtils.synthesizeKey("VK_TAB", { shiftKey: true }, inspector.panelWin);
++  } else {
++    EventUtils.sendKey("return", inspector.panelWin);
++  }
+ }
+ 
+ /**
+  * Focus the new-attribute inplace-editor field of a node's markup container
+  * and enters the given text, then wait for it to be applied and the for the
+  * node to mutates (when new attribute(s) is(are) created)
+  * @param {String} selector The selector for the node to edit.
+  * @param {String} text The new attribute text to be entered (e.g. "id='test'")
 diff --git a/devtools/client/shared/inplace-editor.js b/devtools/client/shared/inplace-editor.js
 --- a/devtools/client/shared/inplace-editor.js
 +++ b/devtools/client/shared/inplace-editor.js
-@@ -1233,16 +1233,18 @@ function copyTextStyles(from, to) {
+@@ -987,28 +987,20 @@ InplaceEditor.prototype = {
+ 
+       this._apply(event, direction);
+ 
+       // Close the popup if open
+       if (this.popup && this.popup.isOpen) {
+         this.popup.hidePopup();
+       }
+ 
++      // If the focused element wasn't changed by the done callback,
++      // move the focus as requested.
+       if (direction !== null && focusManager.focusedElement === input) {
+-        // If the focused element wasn't changed by the done callback,
+-        // move the focus as requested.
+-        let next = moveFocus(this.doc.defaultView, direction);
+-
+-        // If the next node to be focused has been tagged as an editable
+-        // node, trigger editing using the configured event
+-        if (next && next.ownerDocument === this.doc && next._editable) {
+-          let e = this.doc.createEvent("Event");
+-          e.initEvent(next._trigger, true, true);
+-          next.dispatchEvent(e);
+-        }
++        moveFocus(this.doc, direction, true);
+       }
+ 
+       this._clear();
+     } else if (event.keyCode === Ci.nsIDOMKeyEvent.DOM_VK_ESCAPE) {
+       // Cancel and blur ourselves.
+       // Now we don't want to suggest anything as we are moving out.
+       this._preventSuggestions = true;
+       // Close the popup if open
+@@ -1227,22 +1219,41 @@ function copyTextStyles(from, to) {
+   let style = win.getComputedStyle(from);
+   to.style.fontFamily = style.getPropertyCSSValue("font-family").cssText;
+   to.style.fontSize = style.getPropertyCSSValue("font-size").cssText;
+   to.style.fontWeight = style.getPropertyCSSValue("font-weight").cssText;
+   to.style.fontStyle = style.getPropertyCSSValue("font-style").cssText;
+ }
  
  /**
-  * Trigger a focus change similar to pressing tab/shift-tab.
+- * Trigger a focus change similar to pressing tab/shift-tab.
++ * Trigger a focus change similar to pressing Tab / Shift + Tab.
++ *
++ * @param  {HTMLDocument}
++ * @param  {Integer} direction
++ *         Search for Ci.nsIFocusManager constants.
++ * @param  {Boolean} editMode
++ *         True if focused node should be in edit mode.
++ * @return {DOMNode}
++ *         Focused node after focus change.
   */
- function moveFocus(win, direction) {
-   return focusManager.moveFocus(win, null, direction, 0);
+-function moveFocus(win, direction) {
+-  return focusManager.moveFocus(win, null, direction, 0);
++function moveFocus(doc, direction, editMode) {
++  let next = focusManager.moveFocus(doc.defaultView, null, direction, 0);
++
++  // Set next node to edit mode by using configured event.
++  if (editMode && next && next.ownerDocument === doc && next._editable) {
++    let e = doc.createEvent("Event");
++    e.initEvent(next._trigger, true, true);
++    next.dispatchEvent(e);
++  }
++
++  return next;
  }
  
 +exports.moveFocus = moveFocus;
