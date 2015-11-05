@@ -1,0 +1,204 @@
+# HG changeset patch
+# User Grisha Pushkov <grisha@push.org.ru>
+# Parent  4433d0706eb5a86433cd39bdfc53c0bf5b26375d
+Bug 1217311 - Deleting attributes with the keyboard should move the focus to the right attribute
+
+diff --git a/devtools/client/markupview/markup-view.js b/devtools/client/markupview/markup-view.js
+--- a/devtools/client/markupview/markup-view.js
++++ b/devtools/client/markupview/markup-view.js
+@@ -16,17 +16,17 @@ const COLLAPSE_DATA_URL_LENGTH = 60;
+ const NEW_SELECTION_HIGHLIGHTER_TIMER = 1000;
+ const DRAG_DROP_AUTOSCROLL_EDGE_DISTANCE = 50;
+ const DRAG_DROP_MIN_AUTOSCROLL_SPEED = 5;
+ const DRAG_DROP_MAX_AUTOSCROLL_SPEED = 15;
+ const DRAG_DROP_MIN_INITIAL_DISTANCE = 10;
+ const AUTOCOMPLETE_POPUP_PANEL_ID = "markupview_autoCompletePopup";
+ 
+ const {UndoStack} = require("devtools/client/shared/undo");
+-const {editableField, InplaceEditor} = require("devtools/client/shared/inplace-editor");
++const {editableField, InplaceEditor, moveFocus} = require("devtools/client/shared/inplace-editor");
+ const {HTMLEditor} = require("devtools/client/markupview/html-editor");
+ const promise = require("promise");
+ const {Tooltip} = require("devtools/client/shared/widgets/Tooltip");
+ const EventEmitter = require("devtools/shared/event-emitter");
+ const Heritage = require("sdk/core/heritage");
+ const {setTimeout, clearTimeout, setInterval, clearInterval} = require("sdk/timers");
+ const {parseAttribute} = require("devtools/client/shared/node-attribute-parser");
+ const ELLIPSIS = Services.prefs.getComplexValue("intl.ellipsis", Ci.nsIPrefLocalizedString).data;
+@@ -677,16 +677,22 @@ MarkupView.prototype = {
+   deleteNodeOrAttribute: function(moveBackward) {
+     let focusedAttribute = this.doc.activeElement
+                            ? this.doc.activeElement.closest(".attreditor")
+                            : null;
+     if (focusedAttribute) {
+       // The focused attribute might not be in the current selected container.
+       let container = focusedAttribute.closest("li.child").container;
+       container.removeAttribute(focusedAttribute.dataset.attr);
++
++      if (moveBackward) {
++        moveFocus(this.doc, Ci.nsIFocusManager.MOVEFOCUS_BACKWARD);
++      } else {
++        moveFocus(this.doc, Ci.nsIFocusManager.MOVEFOCUS_FORWARD);
++      }
+     } else {
+       this.deleteNode(this._selectedContainer.node, moveBackward);
+     }
+   },
+ 
+   /**
+    * Delete a node from the DOM.
+    * This is an undoable action.
+diff --git a/devtools/client/markupview/test/browser_markupview_keybindings_delete_attributes.js b/devtools/client/markupview/test/browser_markupview_keybindings_delete_attributes.js
+--- a/devtools/client/markupview/test/browser_markupview_keybindings_delete_attributes.js
++++ b/devtools/client/markupview/test/browser_markupview_keybindings_delete_attributes.js
+@@ -1,51 +1,64 @@
+ /* vim: set ts=2 et sw=2 tw=80: */
+ /* Any copyright is dedicated to the Public Domain.
+  http://creativecommons.org/publicdomain/zero/1.0/ */
+ 
+ "use strict";
+ 
+ // Tests that attributes can be deleted from the markup-view with the delete key
+ // when they are focused.
+-
+ const HTML = `<div id="id" class="class" data-id="id"></div>`;
+ const TEST_URL = "data:text/html;charset=utf-8," + encodeURIComponent(HTML);
+ 
+ // List of all the test cases. Each item is an object with the following props:
+ // - selector: the css selector of the node that should be selected
+ // - attribute: the name of the attribute that should be focused. Do not
+ //   specify an attribute that would make it impossible to find the node using
+ //   selector.
++// - deleteKey: the key that will be triggered on attribute (delete or back_space)
+ // Note that after each test case, undo is called.
+ const TEST_DATA = [{
+   selector: "#id",
+-  attribute: "class"
++  attribute: "class",
++  deleteKey: "back_space"
+ }, {
+   selector: "#id",
+-  attribute: "data-id"
++  attribute: "data-id",
++  deleteKey: "delete"
+ }];
+ 
+ add_task(function*() {
+   let {inspector} = yield addTab(TEST_URL).then(openInspector);
+   let {walker} = inspector;
+ 
+-  for (let {selector, attribute} of TEST_DATA) {
++  for (let {selector, attribute, deleteKey} of TEST_DATA) {
+     info("Get the container for node " + selector);
+     let {editor} = yield getContainerForSelector(selector, inspector);
+ 
+     info("Focus attribute " + attribute);
+     let attr = editor.attrElements.get(attribute).querySelector(".editable");
+     attr.focus();
+ 
+-    info("Delete the attribute by pressing delete");
++    info("Remember which element should be focused after attribute removal");
++    let next = (deleteKey == "delete")
++               ? attr.parentNode.nextSibling || editor.newAttr
++               : attr.parentNode.previousSibling || editor.tag;
++
++    // Tag and newAttr don't have child element.
++    next = next.querySelector(".editable") || next;
++
++    info("Delete the attribute by pressing " + deleteKey);
+     let mutated = inspector.once("markupmutation");
+-    EventUtils.sendKey("delete", inspector.panelWin);
++    EventUtils.sendKey(deleteKey, inspector.panelWin);
+     yield mutated;
+ 
++    info("Check that next element is focused");
++    is(editor.doc.activeElement, next, "next element is focused");
++
+     info("Check that the node is still here");
+     let node = yield walker.querySelector(walker.rootNode, selector);
+     ok(node, "The node hasn't been deleted");
+ 
+     info("Check that the attribute has been deleted");
+     node = yield walker.querySelector(walker.rootNode,
+                                       selector + "[" + attribute + "]");
+     ok(!node, "The attribute does not exist anymore in the DOM");
+diff --git a/devtools/client/shared/inplace-editor.js b/devtools/client/shared/inplace-editor.js
+--- a/devtools/client/shared/inplace-editor.js
++++ b/devtools/client/shared/inplace-editor.js
+@@ -993,28 +993,20 @@ InplaceEditor.prototype = {
+ 
+       this._apply(event, direction);
+ 
+       // Close the popup if open
+       if (this.popup && this.popup.isOpen) {
+         this.popup.hidePopup();
+       }
+ 
++      // If the focused element wasn't changed by the done callback,
++      // move the focus as requested.
+       if (direction !== null && focusManager.focusedElement === input) {
+-        // If the focused element wasn't changed by the done callback,
+-        // move the focus as requested.
+-        let next = moveFocus(this.doc.defaultView, direction);
+-
+-        // If the next node to be focused has been tagged as an editable
+-        // node, trigger editing using the configured event
+-        if (next && next.ownerDocument === this.doc && next._editable) {
+-          let e = this.doc.createEvent("Event");
+-          e.initEvent(next._trigger, true, true);
+-          next.dispatchEvent(e);
+-        }
++        moveFocus(this.doc, direction, true);
+       }
+ 
+       this._clear();
+     } else if (event.keyCode === Ci.nsIDOMKeyEvent.DOM_VK_ESCAPE) {
+       // Cancel and blur ourselves.
+       // Now we don't want to suggest anything as we are moving out.
+       this._preventSuggestions = true;
+       // Close the popup if open
+@@ -1233,22 +1225,41 @@ function copyTextStyles(from, to) {
+   let style = win.getComputedStyle(from);
+   to.style.fontFamily = style.getPropertyCSSValue("font-family").cssText;
+   to.style.fontSize = style.getPropertyCSSValue("font-size").cssText;
+   to.style.fontWeight = style.getPropertyCSSValue("font-weight").cssText;
+   to.style.fontStyle = style.getPropertyCSSValue("font-style").cssText;
+ }
+ 
+ /**
+- * Trigger a focus change similar to pressing tab/shift-tab.
++ * Trigger a focus change similar to pressing Tab / Shift + Tab.
++ *
++ * @param  {HTMLDocument} doc
++ * @param  {Integer} direction
++ *         Search for Ci.nsIFocusManager constants.
++ * @param  {Boolean} editMode
++ *         True if focused node should be in edit mode.
++ * @return {DOMNode}
++ *         Focused node after focus change.
+  */
+-function moveFocus(win, direction) {
+-  return focusManager.moveFocus(win, null, direction, 0);
++function moveFocus(doc, direction, editMode) {
++  let next = focusManager.moveFocus(doc.defaultView, null, direction, 0);
++
++  // Set next node to edit mode by using configured event.
++  if (editMode && next && next.ownerDocument === doc && next._editable) {
++    let e = doc.createEvent("Event");
++    e.initEvent(next._trigger, true, true);
++    next.dispatchEvent(e);
++  }
++
++  return next;
+ }
+ 
++exports.moveFocus = moveFocus;
++
+ XPCOMUtils.defineLazyGetter(this, "focusManager", function() {
+   return Services.focus;
+ });
+ 
+ XPCOMUtils.defineLazyGetter(this, "CSSPropertyList", function() {
+   return domUtils.getCSSPropertyNames(domUtils.INCLUDE_ALIASES).sort();
+ });
+ 
