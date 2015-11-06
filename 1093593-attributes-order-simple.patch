@@ -1,38 +1,34 @@
 # HG changeset patch
 # User Grisha Pushkov <grisha@push.org.ru>
-# Parent  f95c614295a0971529da8c0c93d28718e7c4c5bd
+# Parent  4433d0706eb5a86433cd39bdfc53c0bf5b26375d
 Bug 1093593 - Order of attributes in markup view depends on input order
 
 diff --git a/devtools/client/markupview/markup-view.js b/devtools/client/markupview/markup-view.js
 --- a/devtools/client/markupview/markup-view.js
 +++ b/devtools/client/markupview/markup-view.js
-@@ -2630,16 +2630,22 @@ ElementEditor.prototype = {
-   },
+@@ -2630,17 +2630,17 @@ ElementEditor.prototype = {
  
-   /**
-    * Update the state of the editor from the node.
-    */
-   update: function() {
-     let nodeAttributes = this.node.attributes || [];
+       if (canSimplyShowEditor) {
+         // Element already exists and doesn't need to be recreated.
+         // Just show it (it's hidden by default due to the template).
+         el.style.removeProperty("display");
+       } else {
+         // Create a new editor, because the value of an existing attribute
+         // has changed.
+-        let attribute = this._createAttribute(attr);
++        let attribute = this._createAttribute(attr, el);
+         attribute.style.removeProperty("display");
  
-+    // Reverse attributes to original order on initial node render, because
-+    // they come from NamedNodeMap in opposite order.
-+    if (this.attrElements.size === 0) {
-+      nodeAttributes = nodeAttributes.reverse();
-+    }
-+
-     // Keep the data model in sync with attributes on the node.
-     let currentAttributes = new Set(nodeAttributes.map(a=>a.name));
-     for (let name of this.attrElements.keys()) {
-       if (!currentAttributes.has(name)) {
-         this.removeAttribute(name);
-       }
-     }
- 
+         // Temporarily flash the attribute to highlight the change.
+         // But not if this is the first time the editor instance has
+         // been created.
+         if (this.initialized) {
+           this.flashAttribute(attr.name);
+         }
 diff --git a/devtools/client/markupview/test/browser.ini b/devtools/client/markupview/test/browser.ini
 --- a/devtools/client/markupview/test/browser.ini
 +++ b/devtools/client/markupview/test/browser.ini
-@@ -111,13 +111,14 @@ skip-if = e10s # Bug 1036409 - The last 
+@@ -110,13 +110,14 @@ skip-if = e10s # Bug 1036409 - The last 
  [browser_markupview_tag_edit_05.js]
  [browser_markupview_tag_edit_06.js]
  [browser_markupview_tag_edit_07.js]
@@ -216,7 +212,7 @@ diff --git a/devtools/client/markupview/test/browser_markupview_tag_edit_13-othe
 new file mode 100644
 --- /dev/null
 +++ b/devtools/client/markupview/test/browser_markupview_tag_edit_13-other.js
-@@ -0,0 +1,26 @@
+@@ -0,0 +1,37 @@
 +/* vim: set ts=2 et sw=2 tw=80: */
 +/* Any copyright is dedicated to the Public Domain.
 + http://creativecommons.org/publicdomain/zero/1.0/ */
@@ -228,25 +224,80 @@ new file mode 100644
 +const TEST_URL = "data:text/html;charset=utf8,<div a b id='order' c class></div>";
 +
 +add_task(function*() {
-+  let {inspector} = yield addTab(TEST_URL).then(openInspector);
++  let {inspector, testActor} = yield addTab(TEST_URL).then(openInspector);
 +
 +  yield testOriginalAttributesOrder(inspector);
++  yield testOrderAfterAttributeChange(inspector);
++
++  function* testOriginalAttributesOrder(inspector) {
++    info("Testing order of attributes on initial node render");
++
++    let attributes = yield getAttributesFromEditor("#order", inspector);
++    ok(isEqual(attributes, ["id", "class", "a", "b", "c"]), "ordered correctly");
++  }
++
++  function* testOrderAfterAttributeChange(inspector) {
++    info("Testing order of attributes after attribute is change by setAttribute");
++
++    let container = getContainerForSelector("#order", inspector);
++    yield testActor.setAttribute("#order", "a", "changed");
++
++    let attributes = yield getAttributesFromEditor("#order", inspector);
++    ok(isEqual(attributes, ["id", "class", "a", "b", "c"]), "order isn't changed");
++  }
++
++  function isEqual(a, b) {
++    return a.toString() === b.toString();
++  }
 +});
-+
-+function* testOriginalAttributesOrder(inspector) {
-+  info("Testing order of attributes on initial node render");
-+
-+  let attributes = yield getAttributesFromEditor("#order", inspector);
-+  ok(isEqual(attributes, ["id", "class", "a", "b", "c"]), "ordered correctly");
-+}
-+
-+function isEqual(a, b) {
-+  return a.toString() === b.toString();
-+}
 diff --git a/devtools/client/markupview/test/head.js b/devtools/client/markupview/test/head.js
 --- a/devtools/client/markupview/test/head.js
 +++ b/devtools/client/markupview/test/head.js
-@@ -653,16 +653,32 @@ function checkFocusedAttribute(attrName,
+@@ -18,16 +18,20 @@ waitForExplicitFinish();
+ 
+ // If a test times out we want to see the complete log and not just the last few
+ // lines.
+ SimpleTest.requestCompleteLog();
+ 
+ // Uncomment this pref to dump all devtools emitted events to the console.
+ // Services.prefs.setBoolPref("devtools.dump.emit", true);
+ 
++// Import helpers registering the test-actor in remote targets
++var testDir = gTestPath.substr(0, gTestPath.lastIndexOf("/"));
++Services.scriptloader.loadSubScript(testDir + "../../../shared/test/test-actor-registry.js", this);
++
+ // Set the testing flag on DevToolsUtils and reset it when the test ends
+ DevToolsUtils.testing = true;
+ registerCleanupFunction(() => DevToolsUtils.testing = false);
+ 
+ // Clear preferences that may be set during the course of tests.
+ registerCleanupFunction(() => {
+   Services.prefs.clearUserPref("devtools.inspector.htmlPanelOpen");
+   Services.prefs.clearUserPref("devtools.inspector.sidebarOpen");
+@@ -134,17 +138,21 @@ function openToolbox(toolId) {
+  * @return a promise that resolves when the inspector is ready
+  */
+ function openInspector() {
+   return openToolbox("inspector").then(({toolbox}) => {
+     let inspector = toolbox.getCurrentPanel();
+     let eventId = "inspector-updated";
+     return inspector.once("inspector-updated").then(() => {
+       info("The inspector panel is active and ready");
+-      return {toolbox: toolbox, inspector: inspector};
++      return registerTestActor(toolbox.target.client);
++    }).then(() => {
++      return getTestActor(toolbox);
++    }).then((testActor) => {
++      return {toolbox, inspector, testActor};
+     });
+   });
+ }
+ 
+ /**
+  * Wait for a content -> chrome message on the message manager (the window
+  * messagemanager is used).
+  * @param {String} name The message name
+@@ -653,16 +661,32 @@ function checkFocusedAttribute(attrName,
    let focusedAttr = Services.focus.focusedElement;
    is(focusedAttr ? focusedAttr.parentNode.dataset.attr : undefined,
      attrName, attrName + " attribute editor is currently focused.");
@@ -279,3 +330,117 @@ diff --git a/devtools/client/markupview/test/head.js b/devtools/client/markupvie
    // wait again
    if (inspector.markup._queuedChildUpdates &&
        inspector.markup._queuedChildUpdates.size) {
+diff --git a/devtools/client/shared/test/test-actor.js b/devtools/client/shared/test/test-actor.js
+--- a/devtools/client/shared/test/test-actor.js
++++ b/devtools/client/shared/test/test-actor.js
+@@ -1,15 +1,15 @@
+ /* vim: set ft=javascript ts=2 et sw=2 tw=80: */
+ /* Any copyright is dedicated to the Public Domain.
+  http://creativecommons.org/publicdomain/zero/1.0/ */
+ 
+ "use strict";
+ 
+-// A helper actor for brower/devtools/inspector tests.
++// A helper actor for inspector and markupview tests.
+ 
+ var { Cc, Ci, Cu, Cr } = require("chrome");
+ const {getRect, getElementFromPoint, getAdjustedQuads} = require("devtools/shared/layout/utils");
+ const promise = require("promise");
+ const {Task} = Cu.import("resource://gre/modules/Task.jsm", {});
+ var DOMUtils = Cc["@mozilla.org/inspector/dom-utils;1"].getService(Ci.inIDOMUtils);
+ var loader = Cc["@mozilla.org/moz/jssubscript-loader;1"]
+             .getService(Ci.mozIJSSubScriptLoader);
+@@ -408,17 +408,17 @@ var TestActor = exports.TestActor = prot
+     response: {
+       value: RetVal("json")
+     }
+   }),
+ 
+   /**
+    * Set a JS property on a DOM Node.
+    * @param {String} selector The node selector
+-   * @param {String} attribute The attribute name
++   * @param {String} property The property name
+    * @param {String} value The attribute value
+    */
+   setProperty: protocol.method(function (selector, property, value) {
+     let node = this._querySelector(selector);
+     node[property] = value;
+   }, {
+     request: {
+       selector: Arg(0, "string"),
+@@ -426,33 +426,51 @@ var TestActor = exports.TestActor = prot
+       value: Arg(2, "string")
+     },
+     response: {}
+   }),
+ 
+   /**
+    * Get a JS property on a DOM Node.
+    * @param {String} selector The node selector
+-   * @param {String} attribute The attribute name
++   * @param {String} property The property name
+    * @return {String} value The attribute value
+    */
+   getProperty: protocol.method(function (selector, property) {
+     let node = this._querySelector(selector);
+     return node[property];
+   }, {
+     request: {
+       selector: Arg(0, "string"),
+       property: Arg(1, "string")
+     },
+     response: {
+       value: RetVal("string")
+     }
+   }),
+ 
+   /**
++   * Set an attribute on a DOM Node.
++   * @param {String} selector The node selector
++   * @param {String} attribute The attribute name
++   * @param {String} value The attribute value
++   */
++  setAttribute: protocol.method(function (selector, attribute, value) {
++    let node = this._querySelector(selector);
++    node.setAttribute(attribute, value);
++  }, {
++    request: {
++      selector: Arg(0, "string"),
++      property: Arg(1, "string"),
++      value: Arg(2, "string")
++    },
++    response: {}
++  }),
++
++  /**
+    * Reload an iframe and wait for its load event.
+    * @param {String} selector The node selector
+    */
+   reloadFrame: protocol.method(function (selector) {
+     let node = this._querySelector(selector);
+ 
+     let deferred = promise.defer();
+ 
+diff --git a/devtools/server/actors/inspector.js b/devtools/server/actors/inspector.js
+--- a/devtools/server/actors/inspector.js
++++ b/devtools/server/actors/inspector.js
+@@ -414,17 +414,17 @@ var NodeActor = exports.NodeActor = prot
+     }
+     return false;
+   },
+ 
+   writeAttrs: function() {
+     if (!this.rawNode.attributes) {
+       return undefined;
+     }
+-    return [...this.rawNode.attributes].map(attr => {
++    return [...this.rawNode.attributes].reverse().map(attr => {
+       return {namespace: attr.namespace, name: attr.name, value: attr.value };
+     });
+   },
+ 
+   writePseudoClassLocks: function() {
+     if (this.rawNode.nodeType !== Ci.nsIDOMNode.ELEMENT_NODE) {
+       return undefined;
+     }
