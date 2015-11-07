@@ -1,0 +1,209 @@
+# HG changeset patch
+# User Grisha Pushkov <grisha@push.org.ru>
+# Parent  4433d0706eb5a86433cd39bdfc53c0bf5b26375d
+Bug 1221183 - Double-click on a tag shouldn't only allow you to edit tag but also add whatever you want like classes or id
+
+diff --git a/devtools/client/markupview/markup-view.js b/devtools/client/markupview/markup-view.js
+--- a/devtools/client/markupview/markup-view.js
++++ b/devtools/client/markupview/markup-view.js
+@@ -2946,18 +2946,36 @@ ElementEditor.prototype = {
+     // Start listening for mutations until we find an attributes change
+     // that modifies this attribute.
+     this.markup._inspector.once("markupmutation", onMutations);
+   },
+ 
+   /**
+    * Called when the tag name editor has is done editing.
+    */
+-  onTagEdit: function(newTagName, isCommit) {
+-    if (!isCommit || newTagName.toLowerCase() === this.node.tagName.toLowerCase() ||
++  onTagEdit: function(value, isCommit) {
++    if (!isCommit) {
++      return;
++    }
++
++    // Committed value can contain attributes.
++    // Consider tag to be before first whitespace and remaining to be attributes.
++    let newTagName = value.match(/^[^ ]*/)[0];
++    let attributes = value.slice(newTagName.length);
++
++    let doMods = this._startModifyingAttributes();
++    let undoMods = this._startModifyingAttributes();
++    this._applyAttributes(attributes, null, doMods, undoMods);
++    this.container.undo.do(() => {
++      doMods.apply();
++    }, function() {
++      undoMods.apply();
++    });
++
++    if (newTagName.toLowerCase() === this.node.tagName.toLowerCase() ||
+         !("editTagName" in this.markup.walker)) {
+       return;
+     }
+ 
+     // Changing the tagName removes the node. Make sure the replacing node gets
+     // selected afterwards.
+     this.markup.reselectOnRemoved(this.node, "edittagname");
+     this.markup.walker.editTagName(this.node, newTagName).then(null, () => {
+diff --git a/devtools/client/markupview/test/browser_markupview_tag_edit_03.js b/devtools/client/markupview/test/browser_markupview_tag_edit_03.js
+--- a/devtools/client/markupview/test/browser_markupview_tag_edit_03.js
++++ b/devtools/client/markupview/test/browser_markupview_tag_edit_03.js
+@@ -4,17 +4,17 @@
+ 
+ "use strict";
+ 
+ // Tests that a node's tagname can be edited in the markup-view
+ 
+ const TEST_URL = "data:text/html;charset=utf-8,<div id='retag-me'><div id='retag-me-2'></div></div>";
+ 
+ add_task(function*() {
+-  let {toolbox, inspector} = yield addTab(TEST_URL).then(openInspector);
++  let {toolbox, inspector, testActor} = yield addTab(TEST_URL).then(openInspector);
+ 
+   yield inspector.markup.expandAll();
+ 
+   info("Selecting the test node");
+   yield selectNode("#retag-me", inspector);
+ 
+   info("Getting the markup-container for the test node");
+   let container = yield getContainerForSelector("#retag-me", inspector);
+@@ -42,9 +42,48 @@ add_task(function*() {
+   info("Checking that the tagname change was done");
+   parentInfo = yield getNodeInfo("#retag-me");
+   is(parentInfo.tagName.toLowerCase(), "p",
+      "The #retag-me element is now a P");
+   is(parentInfo.numChildren, 1, "#retag-me still has one child");
+   childInfo = yield getNodeInfo("#retag-me > *");
+   is(childInfo.attributes[0].value, "retag-me-2",
+      "#retag-me's only child is #retag-me-2");
++
++  yield testAddingAttributesInTagField(inspector, testActor);
++  yield testChangingTagWithAttributes(inspector, testActor);
++
+ });
++
++function* testAddingAttributesInTagField(inspector, testActor) {
++  info("Testing adding attributes in tag editable field without tag change");
++
++  let selector = "#retag-me";
++  let {editor} = yield getContainerForSelector(selector, inspector);
++
++  info("Adding attributes to #retag-me");
++  setEditableFieldValue(editor.tag, "p class='class' a", inspector);
++  ok(isEqualAttributes((yield testActor.getAttributes(selector)),
++     ["id", "class", "a"]), "attributes were added");
++
++  let parentInfo = yield getNodeInfo(selector);
++  is(parentInfo.tagName.toLowerCase(), "p", "tagname wasn't changed");
++}
++
++function* testChangingTagWithAttributes(inspector, testActor) {
++  info("Testing adding attributes in tag editable field with tag change");
++
++  let selector = "#retag-me";
++  let {editor} = yield getContainerForSelector(selector, inspector);
++
++  info("Adding attributes to #retag-me");
++  setEditableFieldValue(editor.tag, "div b c", inspector);
++  ok(isEqualAttributes((yield testActor.getAttributes(selector)),
++     ["id", "class", "a", "b", "c"]), "attributes were added");
++
++  let parentInfo = yield getNodeInfo(selector);
++  is(parentInfo.tagName.toLowerCase(), "div", "tagname was changed");
++}
++
++function isEqualAttributes(attributes, expected) {
++  attributes = attributes.map(attribute => attribute.name);
++  return attributes.sort().toString() == expected.sort().toString();
++}
+diff --git a/devtools/client/markupview/test/head.js b/devtools/client/markupview/test/head.js
+--- a/devtools/client/markupview/test/head.js
++++ b/devtools/client/markupview/test/head.js
+@@ -18,16 +18,20 @@ waitForExplicitFinish();
+ 
+ // If a test times out we want to see the complete log and not just the last few
+ // lines.
+ SimpleTest.requestCompleteLog();
+ 
+ // Uncomment this pref to dump all devtools emitted events to the console.
+ // Services.prefs.setBoolPref("devtools.dump.emit", true);
+ 
++// Import helpers registering the test-actor in remote targets
++var testDir = gTestPath.substr(0, gTestPath.lastIndexOf("/"));
++Services.scriptloader.loadSubScript(testDir + "../../../shared/test/test-actor-registry.js", this);
++
+ // Set the testing flag on DevToolsUtils and reset it when the test ends
+ DevToolsUtils.testing = true;
+ registerCleanupFunction(() => DevToolsUtils.testing = false);
+ 
+ // Clear preferences that may be set during the course of tests.
+ registerCleanupFunction(() => {
+   Services.prefs.clearUserPref("devtools.inspector.htmlPanelOpen");
+   Services.prefs.clearUserPref("devtools.inspector.sidebarOpen");
+@@ -134,17 +138,21 @@ function openToolbox(toolId) {
+  * @return a promise that resolves when the inspector is ready
+  */
+ function openInspector() {
+   return openToolbox("inspector").then(({toolbox}) => {
+     let inspector = toolbox.getCurrentPanel();
+     let eventId = "inspector-updated";
+     return inspector.once("inspector-updated").then(() => {
+       info("The inspector panel is active and ready");
+-      return {toolbox: toolbox, inspector: inspector};
++      return registerTestActor(toolbox.target.client);
++    }).then(() => {
++      return getTestActor(toolbox);
++    }).then((testActor) => {
++      return {toolbox, inspector, testActor};
+     });
+   });
+ }
+ 
+ /**
+  * Wait for a content -> chrome message on the message manager (the window
+  * messagemanager is used).
+  * @param {String} name The message name
+diff --git a/devtools/client/shared/test/test-actor.js b/devtools/client/shared/test/test-actor.js
+--- a/devtools/client/shared/test/test-actor.js
++++ b/devtools/client/shared/test/test-actor.js
+@@ -443,16 +443,40 @@ var TestActor = exports.TestActor = prot
+       property: Arg(1, "string")
+     },
+     response: {
+       value: RetVal("string")
+     }
+   }),
+ 
+   /**
++   * Get attributes on a DOM Node.
++   *
++   * @param  {String} selector
++   * @return {Array}
++   *         Array of attributes (e.g. [{name: "id", value: "value"}]).
++   */
++  getAttributes: protocol.method(function (selector) {
++    let node = this._querySelector(selector);
++    return [...node.attributes].map(attribute => {
++      return {
++        name: attribute.name,
++        value: attribute.value
++      }
++    });
++  }, {
++    request: {
++      selector: Arg(0, "string"),
++    },
++    response: {
++      value: RetVal("json")
++    }
++  }),
++
++  /**
+    * Reload an iframe and wait for its load event.
+    * @param {String} selector The node selector
+    */
+   reloadFrame: protocol.method(function (selector) {
+     let node = this._querySelector(selector);
+ 
+     let deferred = promise.defer();
+ 
