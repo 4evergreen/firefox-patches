@@ -1,12 +1,132 @@
 # HG changeset patch
 # User Grisha Pushkov <grisha@push.org.ru>
-# Parent  4433d0706eb5a86433cd39bdfc53c0bf5b26375d
+# Parent  2fe63f770d60eb93a919912d98d5afb5761b3366
 Bug 1221183 - Double-click on a tag shouldn't only allow you to edit tag but also add whatever you want like classes or id
 
 diff --git a/devtools/client/markupview/markup-view.js b/devtools/client/markupview/markup-view.js
 --- a/devtools/client/markupview/markup-view.js
 +++ b/devtools/client/markupview/markup-view.js
-@@ -2946,18 +2946,36 @@ ElementEditor.prototype = {
+@@ -2532,24 +2532,17 @@ function ElementEditor(aContainer, aNode
+     stopOnReturn: true,
+     contentType: InplaceEditor.CONTENT_TYPES.CSS_MIXED,
+     popup: this.markup.popup,
+     done: (aVal, aCommit) => {
+       if (!aCommit) {
+         return;
+       }
+ 
+-      let doMods = this._startModifyingAttributes();
+-      let undoMods = this._startModifyingAttributes();
+-      this._applyAttributes(aVal, null, doMods, undoMods);
+-      this.container.undo.do(() => {
+-        doMods.apply();
+-      }, function() {
+-        undoMods.apply();
+-      });
++      this._applyAttributes(aVal, null);
+     }
+   });
+ 
+   let tagName = this.node.nodeName.toLowerCase();
+   this.tag.textContent = tagName;
+   this.closeTag.textContent = tagName;
+   this.eventNode.style.display = this.node.hasEventListeners ? "inline-block" : "none";
+ 
+@@ -2751,31 +2744,18 @@ ElementEditor.prototype = {
+           aEditor.input.select();
+         }
+       },
+       done: (aVal, aCommit, direction) => {
+         if (!aCommit || aVal === initial) {
+           return;
+         }
+ 
+-        let doMods = this._startModifyingAttributes();
+-        let undoMods = this._startModifyingAttributes();
+-
+-        // Remove the attribute stored in this editor and re-add any attributes
+-        // parsed out of the input element. Restore original attribute if
+-        // parsing fails.
+         this.refocusOnEdit(aAttr.name, attr, direction);
+-        this._saveAttribute(aAttr.name, undoMods);
+-        doMods.removeAttribute(aAttr.name);
+-        this._applyAttributes(aVal, attr, doMods, undoMods);
+-        this.container.undo.do(() => {
+-          doMods.apply();
+-        }, () => {
+-          undoMods.apply();
+-        });
++        this._applyAttributes(aVal, attr);
+       }
+     });
+ 
+     // Figure out where we should place the attribute.
+     let before = aBefore;
+     if (aAttr.name == "id") {
+       before = this.attrList.firstChild;
+     } else if (aAttr.name == "class") {
+@@ -2821,31 +2801,50 @@ ElementEditor.prototype = {
+ 
+     name.textContent = aAttr.name;
+ 
+     return attr;
+   },
+ 
+   /**
+    * Parse a user-entered attribute string and apply the resulting
+-   * attributes to the node.  This operation is undoable.
++   * attributes to the node. This operation is undoable.
+    *
+-   * @param string aValue the user-entered value.
+-   * @param Element aAttrNode the attribute editor that created this
+-   *        set of attributes, used to place new attributes where the
+-   *        user put them.
++   * @param  {String} value
++   *         The user-entered value.
++   * @param  {DOMNode} editedAttribute
++   *         The attribute editor that created this set of attributes,
++   *         used to place new attributes where the user put them.
+    */
+-  _applyAttributes: function(aValue, aAttrNode, aDoMods, aUndoMods) {
+-    let attrs = parseAttributeValues(aValue, this.doc);
++  _applyAttributes: function(value, editedAttribute) {
++    let doMods = this._startModifyingAttributes();
++    let undoMods = this._startModifyingAttributes();
++
++    // editedAttribute will be replaced by new attributes, so delete it.
++    if (editedAttribute) {
++      let attrName = editedAttribute.getAttribute("data-attr");
++      this._saveAttribute(attrName, undoMods);
++      doMods.removeAttribute(attrName);
++    }
++
++    let attrs = parseAttributeValues(value, this.doc);
+     for (let attr of attrs) {
+       // Create an attribute editor next to the current attribute if needed.
+-      this._createAttribute(attr, aAttrNode ? aAttrNode.nextSibling : null);
+-      this._saveAttribute(attr.name, aUndoMods);
+-      aDoMods.setAttribute(attr.name, attr.value);
++      this._createAttribute(attr, editedAttribute
++                                  ? editedAttribute.nextSibling
++                                  : null);
++      this._saveAttribute(attr.name, undoMods);
++      doMods.setAttribute(attr.name, attr.value);
+     }
++
++    this.container.undo.do(() => {
++      doMods.apply();
++    }, function() {
++      undoMods.apply();
++    });
+   },
+ 
+   /**
+    * Saves the current state of the given attribute into an attribute
+    * modification list.
+    */
+   _saveAttribute: function(aName, aUndoMods) {
+     let node = this.node;
+@@ -2946,18 +2945,28 @@ ElementEditor.prototype = {
      // Start listening for mutations until we find an attributes change
      // that modifies this attribute.
      this.markup._inspector.once("markupmutation", onMutations);
@@ -26,15 +146,7 @@ diff --git a/devtools/client/markupview/markup-view.js b/devtools/client/markupv
 +    // Consider tag to be before first whitespace and remaining to be attributes.
 +    let newTagName = value.match(/^[^ ]*/)[0];
 +    let attributes = value.slice(newTagName.length);
-+
-+    let doMods = this._startModifyingAttributes();
-+    let undoMods = this._startModifyingAttributes();
-+    this._applyAttributes(attributes, null, doMods, undoMods);
-+    this.container.undo.do(() => {
-+      doMods.apply();
-+    }, function() {
-+      undoMods.apply();
-+    });
++    this._applyAttributes(attributes, null);
 +
 +    if (newTagName.toLowerCase() === this.node.tagName.toLowerCase() ||
          !("editTagName" in this.markup.walker)) {
@@ -45,9 +157,33 @@ diff --git a/devtools/client/markupview/markup-view.js b/devtools/client/markupv
      // selected afterwards.
      this.markup.reselectOnRemoved(this.node, "edittagname");
      this.markup.walker.editTagName(this.node, newTagName).then(null, () => {
-diff --git a/devtools/client/markupview/test/browser_markupview_tag_edit_03.js b/devtools/client/markupview/test/browser_markupview_tag_edit_03.js
+diff --git a/devtools/client/markupview/test/browser.ini b/devtools/client/markupview/test/browser.ini
+--- a/devtools/client/markupview/test/browser.ini
++++ b/devtools/client/markupview/test/browser.ini
+@@ -100,17 +100,17 @@ skip-if = e10s # Bug 1040751 - CodeMirro
+ [browser_markupview_node_not_displayed_02.js]
+ [browser_markupview_pagesize_01.js]
+ [browser_markupview_pagesize_02.js]
+ [browser_markupview_remove_xul_attributes.js]
+ skip-if = e10s # Bug 1036409 - The last selected node isn't reselected
+ [browser_markupview_search_01.js]
+ [browser_markupview_tag_edit_01.js]
+ [browser_markupview_tag_edit_02.js]
+-[browser_markupview_tag_edit_03.js]
++[browser_markupview_tag_edit_03-tag.js]
+ [browser_markupview_tag_edit_04.js]
+ [browser_markupview_tag_edit_05.js]
+ [browser_markupview_tag_edit_06.js]
+ [browser_markupview_tag_edit_07.js]
+ [browser_markupview_tag_edit_08.js]
+ [browser_markupview_tag_edit_09.js]
+ [browser_markupview_tag_edit_10.js]
+ [browser_markupview_tag_edit_11.js]
+diff --git a/devtools/client/markupview/test/browser_markupview_tag_edit_03.js b/devtools/client/markupview/test/browser_markupview_tag_edit_03-tag.js
+rename from devtools/client/markupview/test/browser_markupview_tag_edit_03.js
+rename to devtools/client/markupview/test/browser_markupview_tag_edit_03-tag.js
 --- a/devtools/client/markupview/test/browser_markupview_tag_edit_03.js
-+++ b/devtools/client/markupview/test/browser_markupview_tag_edit_03.js
++++ b/devtools/client/markupview/test/browser_markupview_tag_edit_03-tag.js
 @@ -4,17 +4,17 @@
  
  "use strict";
@@ -67,7 +203,7 @@ diff --git a/devtools/client/markupview/test/browser_markupview_tag_edit_03.js b
  
    info("Getting the markup-container for the test node");
    let container = yield getContainerForSelector("#retag-me", inspector);
-@@ -42,9 +42,48 @@ add_task(function*() {
+@@ -42,9 +42,49 @@ add_task(function*() {
    info("Checking that the tagname change was done");
    parentInfo = yield getNodeInfo("#retag-me");
    is(parentInfo.tagName.toLowerCase(), "p",
@@ -77,12 +213,11 @@ diff --git a/devtools/client/markupview/test/browser_markupview_tag_edit_03.js b
    is(childInfo.attributes[0].value, "retag-me-2",
       "#retag-me's only child is #retag-me-2");
 +
-+  yield testAddingAttributesInTagField(inspector, testActor);
-+  yield testChangingTagWithAttributes(inspector, testActor);
-+
++  yield testAddingAttributesWithoutTagChange(inspector, testActor);
++  yield testAddingAttributesWithTagChange(inspector, testActor);
  });
 +
-+function* testAddingAttributesInTagField(inspector, testActor) {
++function* testAddingAttributesWithoutTagChange(inspector, testActor) {
 +  info("Testing adding attributes in tag editable field without tag change");
 +
 +  let selector = "#retag-me";
@@ -95,9 +230,11 @@ diff --git a/devtools/client/markupview/test/browser_markupview_tag_edit_03.js b
 +
 +  let parentInfo = yield getNodeInfo(selector);
 +  is(parentInfo.tagName.toLowerCase(), "p", "tagname wasn't changed");
++
++  yield undoChange(inspector);
 +}
 +
-+function* testChangingTagWithAttributes(inspector, testActor) {
++function* testAddingAttributesWithTagChange(inspector, testActor) {
 +  info("Testing adding attributes in tag editable field with tag change");
 +
 +  let selector = "#retag-me";
@@ -106,7 +243,7 @@ diff --git a/devtools/client/markupview/test/browser_markupview_tag_edit_03.js b
 +  info("Adding attributes to #retag-me");
 +  setEditableFieldValue(editor.tag, "div b c", inspector);
 +  ok(isEqualAttributes((yield testActor.getAttributes(selector)),
-+     ["id", "class", "a", "b", "c"]), "attributes were added");
++     ["id", "b", "c"]), "attributes were added");
 +
 +  let parentInfo = yield getNodeInfo(selector);
 +  is(parentInfo.tagName.toLowerCase(), "div", "tagname was changed");
@@ -166,6 +303,23 @@ diff --git a/devtools/client/markupview/test/head.js b/devtools/client/markupvie
 diff --git a/devtools/client/shared/test/test-actor.js b/devtools/client/shared/test/test-actor.js
 --- a/devtools/client/shared/test/test-actor.js
 +++ b/devtools/client/shared/test/test-actor.js
+@@ -1,15 +1,15 @@
+ /* vim: set ft=javascript ts=2 et sw=2 tw=80: */
+ /* Any copyright is dedicated to the Public Domain.
+  http://creativecommons.org/publicdomain/zero/1.0/ */
+ 
+ "use strict";
+ 
+-// A helper actor for brower/devtools/inspector tests.
++// A helper actor for inspector and markupview tests.
+ 
+ var { Cc, Ci, Cu, Cr } = require("chrome");
+ const {getRect, getElementFromPoint, getAdjustedQuads} = require("devtools/shared/layout/utils");
+ const promise = require("promise");
+ const {Task} = Cu.import("resource://gre/modules/Task.jsm", {});
+ var DOMUtils = Cc["@mozilla.org/inspector/dom-utils;1"].getService(Ci.inIDOMUtils);
+ var loader = Cc["@mozilla.org/moz/jssubscript-loader;1"]
+             .getService(Ci.mozIJSSubScriptLoader);
 @@ -443,16 +443,40 @@ var TestActor = exports.TestActor = prot
        property: Arg(1, "string")
      },
