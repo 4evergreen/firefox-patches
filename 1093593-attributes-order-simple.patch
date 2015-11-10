@@ -1,6 +1,6 @@
 # HG changeset patch
 # User Grisha Pushkov <grisha@push.org.ru>
-# Parent  4433d0706eb5a86433cd39bdfc53c0bf5b26375d
+# Parent  2fe63f770d60eb93a919912d98d5afb5761b3366
 Bug 1093593 - Order of attributes in markup view depends on input order
 
 diff --git a/devtools/client/markupview/markup-view.js b/devtools/client/markupview/markup-view.js
@@ -317,10 +317,10 @@ diff --git a/devtools/client/markupview/test/head.js b/devtools/client/markupvie
 + */
 +var getAttributesFromEditor = Task.async(function*(selector, inspector) {
 +  let nodeList = (yield getContainerForSelector(selector, inspector))
-+    .tagLine.querySelectorAll('[data-attr]');
++    .tagLine.querySelectorAll("[data-attr]");
 +
-+  return [...nodeList].map(node => node.getAttribute('data-attr'));
-+})
++  return [...nodeList].map(node => node.getAttribute("data-attr"));
++});
 +
  // The expand all operation of the markup-view calls itself recursively and
  // there's not one event we can wait for to know when it's done
@@ -425,7 +425,7 @@ diff --git a/devtools/client/shared/test/test-actor.js b/devtools/client/shared/
 diff --git a/devtools/server/actors/inspector.js b/devtools/server/actors/inspector.js
 --- a/devtools/server/actors/inspector.js
 +++ b/devtools/server/actors/inspector.js
-@@ -414,17 +414,17 @@ var NodeActor = exports.NodeActor = prot
+@@ -414,17 +414,21 @@ var NodeActor = exports.NodeActor = prot
      }
      return false;
    },
@@ -435,6 +435,10 @@ diff --git a/devtools/server/actors/inspector.js b/devtools/server/actors/inspec
        return undefined;
      }
 -    return [...this.rawNode.attributes].map(attr => {
++
++    // The NamedNodeMap implementation in Firefox (returned by
++    // node.attributes) gives attributes in the reverse order compared
++    // to the source file when iterated. So reverse the list here.
 +    return [...this.rawNode.attributes].reverse().map(attr => {
        return {namespace: attr.namespace, name: attr.name, value: attr.value };
      });
