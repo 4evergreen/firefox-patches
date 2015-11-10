@@ -1,7 +1,7 @@
 # HG changeset patch
 # User Grisha Pushkov <grisha@push.org.ru>
 # Parent  2fe63f770d60eb93a919912d98d5afb5761b3366
-Bug 1093593 - Order of attributes in markup view depends on input order
+Bug 1093593 - Order of attributes in markup view depends on input order; r=pbro
 
 diff --git a/devtools/client/markupview/markup-view.js b/devtools/client/markupview/markup-view.js
 --- a/devtools/client/markupview/markup-view.js
