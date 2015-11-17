@@ -1,6 +1,6 @@
 # HG changeset patch
 # User Grisha Pushkov <grisha@push.org.ru>
-# Parent  2fe63f770d60eb93a919912d98d5afb5761b3366
+# Parent  81de57cbfed15c61062f2292cef14caf9c21d989
 Bug 1221183 - Double-click on a tag shouldn't only allow you to edit tag but also add whatever you want like classes or id
 
 diff --git a/devtools/client/markupview/markup-view.js b/devtools/client/markupview/markup-view.js
@@ -160,7 +160,7 @@ diff --git a/devtools/client/markupview/markup-view.js b/devtools/client/markupv
 diff --git a/devtools/client/markupview/test/browser.ini b/devtools/client/markupview/test/browser.ini
 --- a/devtools/client/markupview/test/browser.ini
 +++ b/devtools/client/markupview/test/browser.ini
-@@ -100,17 +100,17 @@ skip-if = e10s # Bug 1040751 - CodeMirro
+@@ -99,17 +99,17 @@ skip-if = e10s # Bug 1040751 - CodeMirro
  [browser_markupview_node_not_displayed_02.js]
  [browser_markupview_pagesize_01.js]
  [browser_markupview_pagesize_02.js]
@@ -203,7 +203,7 @@ rename to devtools/client/markupview/test/browser_markupview_tag_edit_03-tag.js
  
    info("Getting the markup-container for the test node");
    let container = yield getContainerForSelector("#retag-me", inspector);
-@@ -42,9 +42,49 @@ add_task(function*() {
+@@ -42,9 +42,53 @@ add_task(function*() {
    info("Checking that the tagname change was done");
    parentInfo = yield getNodeInfo("#retag-me");
    is(parentInfo.tagName.toLowerCase(), "p",
@@ -224,7 +224,9 @@ rename to devtools/client/markupview/test/browser_markupview_tag_edit_03-tag.js
 +  let {editor} = yield getContainerForSelector(selector, inspector);
 +
 +  info("Adding attributes to #retag-me");
-+  setEditableFieldValue(editor.tag, "p class='class' a", inspector);
++  let onMutation = inspector.once("markupmutation");
++  setEditableFieldValue(editor.tag, "p class a", inspector);
++  yield onMutation;
 +  ok(isEqualAttributes((yield testActor.getAttributes(selector)),
 +     ["id", "class", "a"]), "attributes were added");
 +
@@ -241,7 +243,9 @@ rename to devtools/client/markupview/test/browser_markupview_tag_edit_03-tag.js
 +  let {editor} = yield getContainerForSelector(selector, inspector);
 +
 +  info("Adding attributes to #retag-me");
++  let onMutation = inspector.once("markupmutation");
 +  setEditableFieldValue(editor.tag, "div b c", inspector);
++  yield onMutation;
 +  ok(isEqualAttributes((yield testActor.getAttributes(selector)),
 +     ["id", "b", "c"]), "attributes were added");
 +
@@ -277,7 +281,7 @@ diff --git a/devtools/client/markupview/test/head.js b/devtools/client/markupvie
  registerCleanupFunction(() => {
    Services.prefs.clearUserPref("devtools.inspector.htmlPanelOpen");
    Services.prefs.clearUserPref("devtools.inspector.sidebarOpen");
-@@ -134,17 +138,21 @@ function openToolbox(toolId) {
+@@ -132,17 +136,21 @@ function openToolbox(toolId) {
   * @return a promise that resolves when the inspector is ready
   */
  function openInspector() {
