@@ -587,7 +587,7 @@ diff --git a/devtools/client/markupview/test/browser_markupview_keybindings_04.j
    assertNodeSelected(inspector, "body");
  
    info("Select the test node with the element picker");
-@@ -33,37 +33,34 @@ add_task(function*() {
+@@ -33,36 +33,30 @@ add_task(function*() {
    assertNodeSelected(inspector, "body");
  });
  
@@ -620,12 +620,8 @@ diff --git a/devtools/client/markupview/test/browser_markupview_keybindings_04.j
 -    document.popupNode = getNode("div");
 -  } catch (e) {}
 -
--  let contentAreaContextMenu = document.querySelector("#contentAreaContextMenu");
 +  yield testActor.eval("document.popupNode = document.querySelector('div')");
-+  // let contentAreaContextMenu = document.querySelector("#contentAreaContextMenu");
-+  // but now contentAreaContextMenu is undefined :(
-+  let contentAreaContextMenu =
-+    yield walker.querySelector(walker.rootNode, "#contentAreaContextMenu");
+   let contentAreaContextMenu = document.querySelector("#contentAreaContextMenu");
    let contextMenu = new nsContextMenu(contentAreaContextMenu);
    yield contextMenu.inspectNode();
  
@@ -633,11 +629,10 @@ diff --git a/devtools/client/markupview/test/browser_markupview_keybindings_04.j
    contentAreaContextMenu.hidePopup();
    contextMenu.hiding();
  
-   yield inspector.once("inspector-updated");
 diff --git a/devtools/client/markupview/test/browser_markupview_mutation_01.js b/devtools/client/markupview/test/browser_markupview_mutation_01.js
 --- a/devtools/client/markupview/test/browser_markupview_mutation_01.js
 +++ b/devtools/client/markupview/test/browser_markupview_mutation_01.js
-@@ -12,169 +12,168 @@ const TEST_URL = TEST_URL_ROOT + "doc_ma
+@@ -12,203 +12,202 @@ const TEST_URL = TEST_URL_ROOT + "doc_ma
  // - desc: for logging only
  // - numMutations: how many mutations are expected to come happen due to the
  //   test case.  Defaults to 1 if not set.
@@ -662,9 +657,10 @@ diff --git a/devtools/client/markupview/test/browser_markupview_mutation_01.js b
    {
      desc: "Removing an attribute",
 -    test: () => {
+-      let node1 = getNode("#node1");
+-      node1.removeAttribute("newattr");
 +    test: function*(testActor) {
-       let node1 = getNode("#node1");
-       node1.removeAttribute("newattr");
++      yield testActor.removeAttribute("#node1", "newattr");
      },
      check: function*(inspector) {
        let {editor} = yield getContainerForSelector("#node1", inspector);
@@ -676,9 +672,10 @@ diff --git a/devtools/client/markupview/test/browser_markupview_mutation_01.js b
    {
      desc: "Re-adding an attribute",
 -    test: () => {
+-      let node1 = getNode("#node1");
+-      node1.setAttribute("newattr", "newattrval");
 +    test: function*(testActor) {
-       let node1 = getNode("#node1");
-       node1.setAttribute("newattr", "newattrval");
++      yield testActor.setAttribute("#node1", "newattr", "newattrval");
      },
      check: function*(inspector) {
        let {editor} = yield getContainerForSelector("#node1", inspector);
@@ -690,9 +687,10 @@ diff --git a/devtools/client/markupview/test/browser_markupview_mutation_01.js b
    {
      desc: "Changing an attribute",
 -    test: () => {
+-      let node1 = getNode("#node1");
+-      node1.setAttribute("newattr", "newattrchanged");
 +    test: function*(testActor) {
-       let node1 = getNode("#node1");
-       node1.setAttribute("newattr", "newattrchanged");
++      yield testActor.setAttribute("#node1", "newattr", "newattrchanged");
      },
      check: function*(inspector) {
        let {editor} = yield getContainerForSelector("#node1", inspector);
@@ -703,11 +701,19 @@ diff --git a/devtools/client/markupview/test/browser_markupview_mutation_01.js b
    },
    {
      desc: "Adding ::after element",
-     numMutations: 2,
+-    numMutations: 2,
 -    test: () => {
+-      let node1 = getNode("#node1");
+-      node1.classList.add("pseudo");
++    // refactoring-log: with 5 numMutations I got 1 failure per 10 tries,
++    // for 3 - 6 failures per 10 tried.
++    // Also I can set numMutations to 100000 and it will be reached. Mutations
++    // is happening continuously? In while-true-loop (of course no)?
++    // Then how to explain this? Maybe we should add event on pseudo elements
++    // adding / removal in markup-view.js?
++    numMutations: 5,
 +    test: function*(testActor) {
-       let node1 = getNode("#node1");
-       node1.classList.add("pseudo");
++      yield testActor.addClass("#node1", "pseudo");
      },
      check: function*(inspector) {
        let {children} = yield getContainerForSelector("#node1", inspector);
@@ -717,11 +723,13 @@ diff --git a/devtools/client/markupview/test/browser_markupview_mutation_01.js b
    },
    {
      desc: "Removing ::after element",
-     numMutations: 2,
+-    numMutations: 2,
 -    test: () => {
+-      let node1 = getNode("#node1");
+-      node1.classList.remove("pseudo");
++    numMutations: 5,
 +    test: function*(testActor) {
-       let node1 = getNode("#node1");
-       node1.classList.remove("pseudo");
++      yield testActor.removeClass("#node1", "pseudo");
      },
      check: function*(inspector) {
        let container = yield getContainerForSelector("#node1", inspector);
@@ -731,9 +739,10 @@ diff --git a/devtools/client/markupview/test/browser_markupview_mutation_01.js b
    {
      desc: "Updating the text-content",
 -    test: () => {
+-      let node1 = getNode("#node1");
+-      node1.textContent = "newtext";
 +    test: function*(testActor) {
-       let node1 = getNode("#node1");
-       node1.textContent = "newtext";
++      yield testActor.setProperty("#node1", "textContent", "newtext");
      },
      check: function*(inspector) {
        let container = yield getContainerForSelector("#node1", inspector);
@@ -747,10 +756,14 @@ diff --git a/devtools/client/markupview/test/browser_markupview_mutation_01.js b
    {
      desc: "Adding a second text child",
 -    test: () => {
+-      let node1 = getNode("#node1");
+-      let newText = node1.ownerDocument.createTextNode("more");
+-      node1.appendChild(newText);
 +    test: function*(testActor) {
-       let node1 = getNode("#node1");
-       let newText = node1.ownerDocument.createTextNode("more");
-       node1.appendChild(newText);
++      yield testActor.eval(`
++        let node = document.querySelector("#node1");
++        let newText = node.ownerDocument.createTextNode("more");
++        node.appendChild(newText);`);
      },
      check: function*(inspector) {
        let container = yield getContainerForSelector("#node1", inspector);
@@ -763,9 +776,10 @@ diff --git a/devtools/client/markupview/test/browser_markupview_mutation_01.js b
    {
      desc: "Go from 2 to 1 text child",
 -    test: () => {
+-      let node1 = getNode("#node1");
+-      node1.textContent = "newtext";
 +    test: function*(testActor) {
-       let node1 = getNode("#node1");
-       node1.textContent = "newtext";
++      yield testActor.setProperty("#node1", "textContent", "newtext");
      },
      check: function*(inspector) {
        let container = yield getContainerForSelector("#node1", inspector);
@@ -779,9 +793,10 @@ diff --git a/devtools/client/markupview/test/browser_markupview_mutation_01.js b
    {
      desc: "Removing an only text child",
 -    test: () => {
+-      let node1 = getNode("#node1");
+-      node1.innerHTML = "";
 +    test: function*(testActor) {
-       let node1 = getNode("#node1");
-       node1.innerHTML = "";
++      yield testActor.setProperty("#node1", "innerHTML", "");
      },
      check: function*(inspector) {
        let container = yield getContainerForSelector("#node1", inspector);
@@ -794,9 +809,10 @@ diff --git a/devtools/client/markupview/test/browser_markupview_mutation_01.js b
    {
      desc: "Go from 0 to 1 text child",
 -    test: () => {
+-      let node1 = getNode("#node1");
+-      node1.textContent = "newtext";
 +    test: function*(testActor) {
-       let node1 = getNode("#node1");
-       node1.textContent = "newtext";
++      yield testActor.setProperty("#node1", "textContent", "newtext");
      },
      check: function*(inspector) {
        let container = yield getContainerForSelector("#node1", inspector);
@@ -811,16 +827,18 @@ diff --git a/devtools/client/markupview/test/browser_markupview_mutation_01.js b
    {
      desc: "Updating the innerHTML",
 -    test: () => {
+-      let node2 = getNode("#node2");
+-      node2.innerHTML = "<div><span>foo</span></div>";
 +    test: function*(testActor) {
-       let node2 = getNode("#node2");
-       node2.innerHTML = "<div><span>foo</span></div>";
++      yield testActor.setProperty("#node2", "innerHTML",
++        "<div><span>foo</span></div>");
      },
      check: function*(inspector) {
        let container = yield getContainerForSelector("#node2", inspector);
  
        let openTags = container.children.querySelectorAll(".open .tag");
        is(openTags.length, 2, "There are 2 tags in node2");
-@@ -182,30 +181,30 @@ const TEST_DATA = [
+       is(openTags[0].textContent.trim(), "div", "The first tag is a div");
        is(openTags[1].textContent.trim(), "span", "The second tag is a span");
  
        is(container.children.querySelector(".text").textContent.trim(), "foo",
@@ -830,11 +848,16 @@ diff --git a/devtools/client/markupview/test/browser_markupview_mutation_01.js b
    {
      desc: "Removing child nodes",
 -    test: () => {
-+    test: function*() {
-       let node4 = getNode("#node4");
-       while (node4.firstChild) {
-         node4.removeChild(node4.firstChild);
-       }
+-      let node4 = getNode("#node4");
+-      while (node4.firstChild) {
+-        node4.removeChild(node4.firstChild);
+-      }
++    test: function*(testActor) {
++      yield testActor.eval(`
++        let node = document.querySelector("#node4");
++        while (node.firstChild) {
++          node.removeChild(node.firstChild);
++        }`);
      },
      check: function*(inspector) {
        let {children} = yield getContainerForSelector("#node4", inspector);
@@ -844,16 +867,23 @@ diff --git a/devtools/client/markupview/test/browser_markupview_mutation_01.js b
    {
      desc: "Appending a child to a different parent",
 -    test: () => {
+-      let node17 = getNode("#node17");
+-      let node2 = getNode("#node2");
+-      node2.appendChild(node17);
 +    test: function*(testActor) {
-       let node17 = getNode("#node17");
-       let node2 = getNode("#node2");
-       node2.appendChild(node17);
++      yield testActor.eval(`
++        let node2 = document.querySelector("#node2");
++        let node17 = document.querySelector("#node17");
++        node2.appendChild(node17);`);
      },
      check: function*(inspector) {
        let {children} = yield getContainerForSelector("#node16", inspector);
        is(children.innerHTML, "", "Node17 has been removed from its node16 parent");
  
-@@ -225,17 +224,17 @@ const TEST_DATA = [
+       let container = yield getContainerForSelector("#node2", inspector);
+       let openTags = container.children.querySelectorAll(".open .tag");
+       is(openTags.length, 3, "There are now 3 tags in node2");
+@@ -225,24 +224,32 @@ const TEST_DATA = [
      //        node21
      // will become:
      // body
@@ -871,8 +901,23 @@ diff --git a/devtools/client/markupview/test/browser_markupview_mutation_01.js b
  
        node1.appendChild(node20);
        node20.appendChild(node18);
++
++      yield testActor.eval(`
++        let node1 = document.querySelector("#node1");
++        let node18 = document.querySelector("#node18");
++        let node20 = document.querySelector("#node20");
++
++        node1.appendChild(node20);
++        node20.appendChild(node18);`);
      },
-@@ -258,43 +257,38 @@ const TEST_DATA = [
+     check: function*(inspector) {
+       yield inspector.markup.expandAll();
+ 
+       let {children} = yield getContainerForSelector("#node1", inspector);
+       is(children.childNodes.length, 2,
+         "Node1 now has 2 children (textnode and node20)");
+ 
+@@ -258,43 +265,38 @@ const TEST_DATA = [
        let node18 = node20Children.childNodes[1];
        is(node18.querySelector(".open .attreditor .attr-value").textContent.trim(),
          "node18", "Node20's second child is indeed node18");
@@ -915,7 +960,7 @@ diff --git a/devtools/client/markupview/test/browser_markupview_mutation_01.js b
 +    while (seenMutations < numMutations) {
 +      let onMutation = inspector.once("markupmutation");
 +      yield test(testActor);
-+      let  mutations = yield onMutation;
++      let mutations = yield onMutation;
 +      seenMutations += mutations.length;
 +      info("Receieved " + seenMutations +
 +           " mutations, expecting at least " + numMutations);
@@ -928,6 +973,396 @@ diff --git a/devtools/client/markupview/test/browser_markupview_mutation_01.js b
      yield check(inspector);
    }
  });
+diff --git a/devtools/client/markupview/test/browser_markupview_mutation_02.js b/devtools/client/markupview/test/browser_markupview_mutation_02.js
+--- a/devtools/client/markupview/test/browser_markupview_mutation_02.js
++++ b/devtools/client/markupview/test/browser_markupview_mutation_02.js
+@@ -15,97 +15,106 @@ const TEST_URL = TEST_URL_ROOT + "doc_ma
+ // - mutate: a function that should make changes to the content DOM
+ // - attribute: if set, the test will expect the corresponding attribute to flash
+ //   instead of the whole node
+ // - flashedNode: [optional] the css selector of the node that is expected to
+ //   flash in the markup-view as a result of the mutation.
+ //   If missing, the rootNode (".list") will be expected to flash
+ const TEST_DATA = [{
+   desc: "Adding a new node should flash the new node",
+-  mutate: (doc, rootNode) => {
+-    let newLi = doc.createElement("LI");
+-    newLi.textContent = "new list item";
+-    rootNode.appendChild(newLi);
++  mutate: function*(testActor) {
++    yield testActor.eval(`
++      let rootNode = document.querySelector(".list");
++      let newLi = document.createElement("LI");
++      newLi.textContent = "new list item";
++      rootNode.appendChild(newLi);`);
+   },
+   flashedNode: ".list li:nth-child(3)"
+ }, {
+   desc: "Removing a node should flash its parent",
+-  mutate: (doc, rootNode) => {
+-    rootNode.removeChild(rootNode.lastElementChild);
++  mutate: function*(testActor) {
++    yield testActor.eval(`
++      let rootNode = document.querySelector(".list");
++      rootNode.removeChild(rootNode.lastElementChild);`);
+   }
+ }, {
+   desc: "Re-appending an existing node should only flash this node",
+-  mutate: (doc, rootNode) => {
+-    rootNode.appendChild(rootNode.firstElementChild);
++  mutate: function*(testActor) {
++    yield testActor.eval(`
++      let rootNode = document.querySelector(".list");
++      rootNode.appendChild(rootNode.firstElementChild);`);
+   },
+   flashedNode: ".list .item:last-child"
+ }, {
+   desc: "Adding an attribute should flash the attribute",
+   attribute: "test-name",
+-  mutate: (doc, rootNode) => {
+-    rootNode.setAttribute("test-name", "value-" + Date.now());
++  mutate: function*(testActor) {
++    yield testActor.setAttribute(".list", "test-name", "value-" + Date.now());
+   }
+ }, {
+   desc: "Editing an attribute should flash the attribute",
+   attribute: "class",
+-  mutate: (doc, rootNode) => {
+-    rootNode.setAttribute("class", "list value-" + Date.now());
++  mutate: function*(testActor) {
++    yield testActor.setAttribute(".list", "class", "list value-" + Date.now());
+   }
+ }, {
+   desc: "Multiple changes to an attribute should flash the attribute",
+   attribute: "class",
+-  mutate: (doc, rootNode) => {
+-    rootNode.removeAttribute("class");
+-    rootNode.setAttribute("class", "list value-" + Date.now());
+-    rootNode.setAttribute("class", "list value-" + Date.now());
+-    rootNode.removeAttribute("class");
+-    rootNode.setAttribute("class", "list value-" + Date.now());
+-    rootNode.setAttribute("class", "list value-" + Date.now());
++  mutate: function*(testActor) {
++    yield testActor.eval(`
++      let rootNode = document.querySelector(".list");
++      rootNode.removeAttribute("class");
++      rootNode.setAttribute("class", "list value-" + Date.now());
++      rootNode.setAttribute("class", "list value-" + Date.now());
++      rootNode.removeAttribute("class");
++      rootNode.setAttribute("class", "list value-" + Date.now());
++      rootNode.setAttribute("class", "list value-" + Date.now());`);
+   }
+ }, {
+   desc: "Removing an attribute should flash the node",
+-  mutate: (doc, rootNode) => {
+-    rootNode.removeAttribute("class");
++  mutate: function*(testActor) {
++    yield testActor.removeAttribute(".list", "class");
+   }
+ }];
+ 
+ add_task(function*() {
+-  let {inspector} = yield addTab(TEST_URL).then(openInspector);
++  let {inspector, testActor} = yield addTab(TEST_URL).then(openInspector);
+ 
+   // Make sure mutated nodes flash for a very long time so we can more easily
+   // assert they do
+   inspector.markup.CONTAINER_FLASHING_DURATION = 1000 * 60 * 60;
+ 
+-  info("Getting the <ul.list> root node to test mutations on");
+-  let rootNode = getNode(".list");
++  info("Getting the <ul.list> nodeFront to test mutations on");
+   let rootNodeFront = yield getNodeFront(".list", inspector);
+ 
+   info("Selecting the last element of the root node before starting");
+   yield selectNode(".list .item:nth-child(2)", inspector);
+ 
+   for (let {mutate, flashedNode, desc, attribute} of TEST_DATA) {
+     info("Starting test: " + desc);
+ 
+     info("Mutating the DOM and listening for markupmutation event");
+-    let mutated = inspector.once("markupmutation");
+-    mutate(content.document, rootNode);
+-    yield mutated;
++    let onMutation = inspector.once("markupmutation");
++    yield mutate(testActor);
++    yield onMutation;
+ 
+     info("Asserting that the correct markup-container is flashing");
+-    let flashingNodeFront = rootNodeFront;
+-    if (flashedNode) {
+-      flashingNodeFront = yield getNodeFront(flashedNode, inspector);
+-    }
++    let flashingNodeFront = flashedNode
++                            ? yield getNodeFront(flashedNode, inspector)
++                            : rootNodeFront;
+ 
+     if (attribute) {
+       yield assertAttributeFlashing(flashingNodeFront, attribute, inspector);
+     } else {
+       yield assertNodeFlashing(flashingNodeFront, inspector);
+     }
+   }
++
++  // Make sure that all connections are completed.
++  yield inspector.once("inspector-updated");
+ });
+ 
+ function* assertNodeFlashing(nodeFront, inspector) {
+   let container = getContainerForNodeFront(nodeFront, inspector);
+   ok(container, "Markup container for node found");
+   ok(container.tagState.classList.contains("theme-bg-contrast"),
+     "Markup container for node is flashing");
+ 
+diff --git a/devtools/client/markupview/test/browser_markupview_remove_xul_attributes.js b/devtools/client/markupview/test/browser_markupview_remove_xul_attributes.js
+--- a/devtools/client/markupview/test/browser_markupview_remove_xul_attributes.js
++++ b/devtools/client/markupview/test/browser_markupview_remove_xul_attributes.js
+@@ -10,18 +10,20 @@
+ const TEST_URL = TEST_URL_ROOT + "doc_markup_xul.xul";
+ 
+ add_task(function*() {
+   let {inspector} = yield addTab(TEST_URL).then(openInspector);
+ 
+   let panel = yield getNode("#test", inspector);
+   let panelFront = yield getNodeFront("#test", inspector);
+ 
+-  ok(panelFront.hasAttribute("id"), "panelFront has id attribute in the beginning");
++  ok(panelFront.hasAttribute("id"),
++    "panelFront has id attribute in the beginning");
+ 
+   info("Removing panel's id attribute");
+   panel.removeAttribute("id");
+ 
+   info("Waiting for markupmutation");
+   yield inspector.once("markupmutation");
+ 
+-  is(panelFront.hasAttribute("id"), false, "panelFront doesn't have id attribute anymore");
++  is(panelFront.hasAttribute("id"), false,
++    "panelFront doesn't have id attribute anymore");
+ });
+diff --git a/devtools/client/markupview/test/browser_markupview_textcontent_edit_01.js b/devtools/client/markupview/test/browser_markupview_textcontent_edit_01.js
+--- a/devtools/client/markupview/test/browser_markupview_textcontent_edit_01.js
++++ b/devtools/client/markupview/test/browser_markupview_textcontent_edit_01.js
+@@ -4,49 +4,53 @@
+ 
+ "use strict";
+ 
+ // Test editing a node's text content
+ 
+ const TEST_URL = TEST_URL_ROOT + "doc_markup_edit.html";
+ 
+ add_task(function*() {
+-  let {inspector} = yield addTab(TEST_URL).then(openInspector);
++  let {inspector, testActor} = yield addTab(TEST_URL).then(openInspector);
+ 
+   info("Expanding all nodes");
+   yield inspector.markup.expandAll();
+   yield waitForMultipleChildrenUpdates(inspector);
+ 
+-  yield editContainer(inspector, {
++  yield editContainer(inspector, testActor, {
+     selector: ".node6",
+     newValue: "New text",
+     oldValue: "line6"
+   });
+ 
+-  yield editContainer(inspector, {
++  yield editContainer(inspector, testActor, {
+     selector: "#node17",
+     newValue: "LOREM IPSUM DOLOR SIT AMET, CONSECTETUR ADIPISCING ELIT. DONEC POSUERE PLACERAT MAGNA ET IMPERDIET.",
+     oldValue: "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Donec posuere placerat magna et imperdiet.",
+     shortValue: true
+   });
+ 
+-  yield editContainer(inspector, {
++  yield editContainer(inspector, testActor, {
+     selector: "#node17",
+     newValue: "New value",
+     oldValue: "LOREM IPSUM DOLOR SIT AMET, CONSECTETUR ADIPISCING ELIT. DONEC POSUERE PLACERAT MAGNA ET IMPERDIET.",
+     shortValue: true
+   });
+ });
+ 
+-function* editContainer(inspector, {selector, newValue, oldValue, shortValue}) {
+-  let node = getNode(selector).firstChild;
+-  is(node.nodeValue, oldValue, "The test node's text content is correct");
++function* editContainer(inspector, testActor, data) {
++  let {selector, newValue, oldValue, shortValue} = data;
++  let nodeValue;
++
++  nodeValue = yield testActor.eval(
++    `document.querySelector("${selector}").firstChild.nodeValue`);
++  is(nodeValue, oldValue, "The test node's text content is correct");
+ 
+   info("Changing the text content");
+-  let onMutated = inspector.once("markupmutation");
++  let onMutation = inspector.once("markupmutation");
+   let container = yield getContainerForSelector(selector, inspector);
+   let field = container.elt.querySelector("pre");
+ 
+   if (shortValue) {
+     is (oldValue.indexOf(field.textContent.substring(0, field.textContent.length - 1)), 0,
+         "The shortened value starts with the full value " + field.textContent);
+     ok (oldValue.length > field.textContent.length, "The shortened value is short");
+   } else {
+@@ -59,16 +63,18 @@ function* editContainer(inspector, {sele
+     info("Waiting for the text to be updated");
+     yield inspector.markup.once("text-expand");
+   }
+ 
+   is (field.textContent, oldValue, "The text node has the correct original value after selecting");
+   setEditableFieldValue(field, newValue, inspector);
+ 
+   info("Listening to the markupmutation event");
+-  yield onMutated;
++  yield onMutation;
+ 
+-  is(node.nodeValue, newValue, "The test node's text content has changed");
++  nodeValue = yield testActor.eval(
++    `document.querySelector("${selector}").firstChild.nodeValue`);
++  is(nodeValue, newValue, "The test node's text content has changed");
+ 
+   info("Selecting the <body> to reset the selection");
+   let bodyContainer = yield getContainerForSelector("body", inspector);
+   inspector.markup.markNodeAsSelected(bodyContainer.node);
+ }
+diff --git a/devtools/client/markupview/test/browser_markupview_toggle_01.js b/devtools/client/markupview/test/browser_markupview_toggle_01.js
+--- a/devtools/client/markupview/test/browser_markupview_toggle_01.js
++++ b/devtools/client/markupview/test/browser_markupview_toggle_01.js
+@@ -4,17 +4,18 @@
+ 
+ "use strict";
+ 
+ // Test toggling (expand/collapse) elements by clicking on twisties
+ 
+ const TEST_URL = TEST_URL_ROOT + "doc_markup_toggle.html";
+ 
+ add_task(function*() {
+-  let {inspector} = yield addTab(TEST_URL).then(openInspector);
++  let {inspector, testActor} = yield addTab(TEST_URL).then(openInspector);
++  let {walker} = inspector;
+ 
+   info("Getting the container for the html element");
+   let container = yield getContainerForSelector("html", inspector);
+   ok(container.mustExpand, "HTML element mustExpand");
+   ok(container.canExpand, "HTML element canExpand");
+   is(container.expander.style.visibility, "hidden", "HTML twisty is hidden");
+ 
+   info("Getting the container for the UL parent element");
+@@ -27,30 +28,31 @@ add_task(function*() {
+   let onChildren = waitForChildrenUpdated(inspector);
+   let onUpdated = inspector.once("inspector-updated");
+   EventUtils.synthesizeMouseAtCenter(container.expander, {},
+     inspector.markup.doc.defaultView);
+   yield onChildren;
+   yield onUpdated;
+ 
+   info("Checking that child LI elements have been created");
+-  for (let i = 0; i < content.document.querySelectorAll("li").length; i ++) {
++  let liCount = (yield walker.querySelectorAll(walker.rootNode, "li")).length;
++  for (let i = 0; i < liCount; i ++) {
+     let liContainer = yield getContainerForSelector(
+       "li:nth-child(" + (i + 1) + ")", inspector);
+     ok(liContainer, "A container for the child LI element was created");
+   }
+   ok(container.expanded, "Parent UL container is expanded");
+ 
+   info("Clicking again on the UL expander");
+   // No need to wait, this is a local, synchronous operation where nodes are
+   // only hidden from the view, not destroyed
+   EventUtils.synthesizeMouseAtCenter(container.expander, {},
+     inspector.markup.doc.defaultView);
+ 
+   info("Checking that child LI elements have been hidden");
+-  for (let i = 0; i < content.document.querySelectorAll("li").length; i ++) {
++  for (let i = 0; i < liCount; i ++) {
+     let liContainer = yield getContainerForSelector(
+       "li:nth-child(" + (i + 1) + ")", inspector);
+     is(liContainer.elt.getClientRects().length, 0,
+       "The container for the child LI element was hidden");
+   }
+   ok(!container.expanded, "Parent UL container is collapsed");
+ });
+diff --git a/devtools/client/markupview/test/browser_markupview_toggle_02.js b/devtools/client/markupview/test/browser_markupview_toggle_02.js
+--- a/devtools/client/markupview/test/browser_markupview_toggle_02.js
++++ b/devtools/client/markupview/test/browser_markupview_toggle_02.js
+@@ -5,43 +5,45 @@
+ "use strict";
+ 
+ // Test toggling (expand/collapse) elements by dbl-clicking on tag lines
+ 
+ const TEST_URL = TEST_URL_ROOT + "doc_markup_toggle.html";
+ 
+ add_task(function*() {
+   let {inspector} = yield addTab(TEST_URL).then(openInspector);
++  let {walker} = inspector;
+ 
+   info("Getting the container for the UL parent element");
+   let container = yield getContainerForSelector("ul", inspector);
+ 
+   info("Dbl-clicking on the UL parent expander, and waiting for children");
+   let onChildren = waitForChildrenUpdated(inspector);
+   let onUpdated = inspector.once("inspector-updated");
+   EventUtils.synthesizeMouseAtCenter(container.tagLine, {clickCount: 2},
+     inspector.markup.doc.defaultView);
+   yield onChildren;
+   yield onUpdated;
+ 
+   info("Checking that child LI elements have been created");
+-  for (let i = 0; i < content.document.querySelectorAll("li").length; i ++) {
++  let liCount = (yield walker.querySelectorAll(walker.rootNode, "li")).length;
++  for (let i = 0; i < liCount; i ++) {
+     let liContainer = yield getContainerForSelector(
+       "li:nth-child(" + (i + 1) + ")", inspector);
+     ok(liContainer, "A container for the child LI element was created");
+   }
+   ok(container.expanded, "Parent UL container is expanded");
+ 
+   info("Dbl-clicking again on the UL expander");
+   // No need to wait, this is a local, synchronous operation where nodes are
+   // only hidden from the view, not destroyed
+   EventUtils.synthesizeMouseAtCenter(container.tagLine, {clickCount: 2},
+     inspector.markup.doc.defaultView);
+ 
+   info("Checking that child LI elements have been hidden");
+-  for (let i = 0; i < content.document.querySelectorAll("li").length; i ++) {
++  for (let i = 0; i < liCount; i ++) {
+     let liContainer = yield getContainerForSelector(
+       "li:nth-child(" + (i + 1) + ")", inspector);
+     is(liContainer.elt.getClientRects().length, 0,
+       "The container for the child LI element was hidden");
+   }
+   ok(!container.expanded, "Parent UL container is collapsed");
+ });
+diff --git a/devtools/client/markupview/test/browser_markupview_update-on-navigtion.js b/devtools/client/markupview/test/browser_markupview_update-on-navigtion.js
+--- a/devtools/client/markupview/test/browser_markupview_update-on-navigtion.js
++++ b/devtools/client/markupview/test/browser_markupview_update-on-navigtion.js
+@@ -5,23 +5,23 @@
+ 
+ // Test that markup view handles page navigation correctly.
+ 
+ const SCHEMA = "data:text/html;charset=UTF-8,";
+ const URL_1 = SCHEMA + "<div id='one' style='color:red;'>ONE</div>";
+ const URL_2 = SCHEMA + "<div id='two' style='color:green;'>TWO</div>";
+ 
+ add_task(function* () {
+-  let { inspector, toolbox } = yield addTab(URL_1).then(openInspector);
++  let {inspector, toolbox, testActor} = yield addTab(URL_1).then(openInspector);
+ 
+   assertMarkupViewIsLoaded();
+   yield selectNode("#one", inspector);
+ 
+   let willNavigate = toolbox.target.once("will-navigate");
+-  content.location = URL_2;
++  testActor.eval(`document.location = "${URL_2}"`);
+ 
+   info("Waiting for will-navigate");
+   yield willNavigate;
+ 
+   info("Navigation to page 2 has started, the inspector should be empty");
+   assertMarkupViewIsEmpty();
+ 
+   info("Waiting for new-root");
 diff --git a/devtools/client/markupview/test/head.js b/devtools/client/markupview/test/head.js
 --- a/devtools/client/markupview/test/head.js
 +++ b/devtools/client/markupview/test/head.js
@@ -1014,7 +1449,7 @@ diff --git a/devtools/client/shared/test/test-actor.js b/devtools/client/shared/
    }, {
      request: {
        selector: Arg(0, "string"),
-@@ -426,33 +426,72 @@ var TestActor = exports.TestActor = prot
+@@ -426,33 +426,118 @@ var TestActor = exports.TestActor = prot
        value: Arg(2, "string")
      },
      response: {}
@@ -1043,9 +1478,9 @@ diff --git a/devtools/client/shared/test/test-actor.js b/devtools/client/shared/
  
    /**
 +   * Get an attribute on a DOM Node.
-+   * @param {String} selector The node selector
-+   * @param {String} attribute The attribute name
-+   * @return {String} value The attribute value
++   * @param {String} selector
++   * @param {String} attribute
++   * @return {String} value
 +   */
 +  getAttribute: protocol.method(function(selector, attribute) {
 +    let node = this._querySelector(selector);
@@ -1062,22 +1497,68 @@ diff --git a/devtools/client/shared/test/test-actor.js b/devtools/client/shared/
 +
 +  /**
 +   * Set an attribute on a DOM Node.
-+   * @param {String} selector The node selector
-+   * @param {String} attribute The attribute name
-+   * @param {String} value The attribute value
++   * @param {String} selector
++   * @param {String} attribute
++   * @param {String} value
 +   */
 +  setAttribute: protocol.method(function(selector, attribute, value) {
 +    let node = this._querySelector(selector);
-+    return node.setAttribute(attribute, value);
++    node.setAttribute(attribute, value);
 +  }, {
 +    request: {
 +      selector: Arg(0, "string"),
 +      attribute: Arg(1, "string"),
 +      value: Arg(2, "string")
 +    },
-+    response: {
-+      value: {}
-+    }
++    response: {}
++  }),
++
++  /**
++   * Remove an attribute on a DOM Node.
++   * @param {String} selector
++   * @param {String} attribute
++   */
++  removeAttribute: protocol.method(function(selector, attribute) {
++    let node = this._querySelector(selector);
++    node.removeAttribute(attribute);
++  }, {
++    request: {
++      selector: Arg(0, "string"),
++      attribute: Arg(1, "string")
++    },
++    response: {}
++  }),
++
++  /**
++   * Add class on a DOM Node.
++   * @param {String} selector
++   * @param {String} className
++   */
++  addClass: protocol.method(function(selector, className) {
++    let node = this._querySelector(selector);
++    node.classList.add(className);
++  }, {
++    request: {
++      selector: Arg(0, "string"),
++      className: Arg(1, "string"),
++    },
++    response: {}
++  }),
++
++  /**
++   * Remove class on a DOM Node.
++   * @param {String} selector
++   * @param {String} className
++   */
++  removeClass: protocol.method(function(selector, className) {
++    let node = this._querySelector(selector);
++    node.classList.remove(className);
++  }, {
++    request: {
++      selector: Arg(0, "string"),
++      className: Arg(1, "string"),
++    },
++    response: {}
 +  }),
 +
 +  /**
