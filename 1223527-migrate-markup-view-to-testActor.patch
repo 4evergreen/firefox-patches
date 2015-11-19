@@ -1,6 +1,6 @@
 # HG changeset patch
 # User Grisha Pushkov <grisha@push.org.ru>
-# Parent  81de57cbfed15c61062f2292cef14caf9c21d989
+# Parent  42a976b770f1b1e54133ee0383940013ded058eb
 Bug 1223527 - Migrate markup-view tests to use testActor
 
 diff --git a/devtools/client/markupview/test/browser_markupview_copy_image_data.js b/devtools/client/markupview/test/browser_markupview_copy_image_data.js
@@ -89,6 +89,279 @@ diff --git a/devtools/client/markupview/test/browser_markupview_copy_image_data.
      ok(item, "The menu item was found in the contextual menu");
      is(item.getAttribute("disabled"), "true", "The menu item is disabled");
    }).then(() => closeNodeMenu(inspector));
+diff --git a/devtools/client/markupview/test/browser_markupview_html_edit_01.js b/devtools/client/markupview/test/browser_markupview_html_edit_01.js
+--- a/devtools/client/markupview/test/browser_markupview_html_edit_01.js
++++ b/devtools/client/markupview/test/browser_markupview_html_edit_01.js
+@@ -8,70 +8,88 @@
+ 
+ loadHelperScript("helper_outerhtml_test_runner.js");
+ 
+ const TEST_DATA = [
+   {
+     selector: "#one",
+     oldHTML: '<div id="one">First <em>Div</em></div>',
+     newHTML: '<div id="one">First Div</div>',
+-    validate: function*(pageNode, pageNodeFront, selectedNodeFront) {
+-      is(pageNode.textContent, "First Div", "New div has expected text content");
+-      ok(!getNode("#one em"), "No em remaining")
++    validate: function*(data, inspector, testActor) {
++      let {selector, pageNodeFront, selectedNodeFront} = data;
++
++      is((yield testActor.getProperty(selector, "textContent")), "First Div",
++        "New div has expected text content");
++      ok(!(yield testActor.hasNode("#one em")), "No em remaining")
+     }
+   },
+   {
+     selector: "#removedChildren",
+     oldHTML: '<div id="removedChildren">removedChild <i>Italic <b>Bold <u>Underline</u></b></i> Normal</div>',
+     newHTML: '<div id="removedChildren">removedChild</div>'
+   },
+   {
+     selector: "#addedChildren",
+     oldHTML: '<div id="addedChildren">addedChildren</div>',
+     newHTML: '<div id="addedChildren">addedChildren <i>Italic <b>Bold <u>Underline</u></b></i> Normal</div>'
+   },
+   {
+     selector: "#addedAttribute",
+     oldHTML: '<div id="addedAttribute">addedAttribute</div>',
+     newHTML: '<div id="addedAttribute" class="important" disabled checked>addedAttribute</div>',
+-    validate: function*(pageNode, pageNodeFront, selectedNodeFront) {
++    validate: function*(data, inspector, testActor) {
++      let {selector, pageNodeFront, selectedNodeFront} = data;
++      let expectedOuterHTML = '<div id="addedAttribute" class="important" ' +
++                              'disabled="" checked="">addedAttribute</div>';
++
+       is(pageNodeFront, selectedNodeFront, "Original element is selected");
+-      is(pageNode.outerHTML, '<div id="addedAttribute" class="important" disabled="" checked="">addedAttribute</div>',
+-            "Attributes have been added");
++      is((yield testActor.getProperty(selector, "outerHTML")),
++        expectedOuterHTML, "Attributes have been added");
+     }
+   },
+   {
+     selector: "#changedTag",
+     oldHTML: '<div id="changedTag">changedTag</div>',
+     newHTML: '<p id="changedTag" class="important">changedTag</p>'
+   },
+   {
+     selector: "#siblings",
+     oldHTML: '<div id="siblings">siblings</div>',
+     newHTML: '<div id="siblings-before-sibling">before sibling</div>' +
+              '<div id="siblings">siblings (updated)</div>' +
+              '<div id="siblings-after-sibling">after sibling</div>',
+-    validate: function*(pageNode, pageNodeFront, selectedNodeFront, inspector) {
+-      let beforeSibling = getNode("#siblings-before-sibling");
+-      let beforeSiblingFront = yield getNodeFront("#siblings-before-sibling", inspector);
+-      let afterSibling = getNode("#siblings-after-sibling");
++    validate: function*(data, inspector, testActor) {
++      let {selector, pageNodeFront, selectedNodeFront} = data;
++      let [
++        beforeSiblingFront,
++        beforeSiblingText,
++        afterSiblingText,
++        selectedNodeText
++      ] = [
++        yield getNodeFront("#siblings-before-sibling", inspector),
++        yield testActor.getProperty("#siblings-before-sibling", "textContent"),
++        yield testActor.getProperty("#siblings-after-sibling", "textContent"),
++        yield testActor.getProperty(selector, "textContent")
++      ]
+ 
+       is(beforeSiblingFront, selectedNodeFront, "Sibling has been selected");
+-      is(pageNode.textContent, "siblings (updated)", "New div has expected text content");
+-      is(beforeSibling.textContent, "before sibling", "Sibling has been inserted");
+-      is(afterSibling.textContent, "after sibling", "Sibling has been inserted");
++      is(selectedNodeText, "siblings (updated)",
++        "New div has expected text content");
++      is(beforeSiblingText, "before sibling", "Sibling has been inserted");
++      is(afterSiblingText, "after sibling", "Sibling has been inserted");
+     }
+   }
+ ];
+ 
+ const TEST_URL = "data:text/html," +
+   "<!DOCTYPE html>" +
+   "<head><meta charset='utf-8' /></head>" +
+   "<body>" +
+   TEST_DATA.map(outer => outer.oldHTML).join("\n") +
+   "</body>" +
+   "</html>";
+ 
+ add_task(function*() {
+-  let {inspector} = yield addTab(TEST_URL).then(openInspector);
++  let {inspector, testActor} = yield addTab(TEST_URL).then(openInspector);
++
+   inspector.markup._frame.focus();
+-  yield runEditOuterHTMLTests(TEST_DATA, inspector);
++  yield runEditOuterHTMLTests(TEST_DATA, inspector, testActor);
+ });
+diff --git a/devtools/client/markupview/test/browser_markupview_html_edit_02.js b/devtools/client/markupview/test/browser_markupview_html_edit_02.js
+--- a/devtools/client/markupview/test/browser_markupview_html_edit_02.js
++++ b/devtools/client/markupview/test/browser_markupview_html_edit_02.js
+@@ -9,93 +9,122 @@
+ loadHelperScript("helper_outerhtml_test_runner.js");
+ requestLongerTimeout(2);
+ 
+ const TEST_DATA = [
+   {
+     selector: "#badMarkup1",
+     oldHTML: '<div id="badMarkup1">badMarkup1</div>',
+     newHTML: '<div id="badMarkup1">badMarkup1</div> hanging</div>',
+-    validate: function*(pageNode, pageNodeFront, selectedNodeFront, inspector) {
++    validate: function*(data, inspector, testActor) {
++      let {selector, pageNodeFront, selectedNodeFront} = data;
++
++      let textNodeNodeName = yield testActor.eval(
++        `document.querySelector("${selector}").nextSibling.nodeName`);
++      let textNodeData = yield testActor.eval(
++        `document.querySelector("${selector}").nextSibling.data`);
++
+       is(pageNodeFront, selectedNodeFront, "Original element is selected");
+-
+-      let textNode = pageNode.nextSibling;
+-
+-      is(textNode.nodeName, "#text", "Sibling is a text element");
+-      is(textNode.data, " hanging", "New text node has expected text content");
++      is(textNodeNodeName, "#text", "Sibling is a text element");
++      is(textNodeData, " hanging", "New text node has expected text content");
+     }
+   },
+   {
+     selector: "#badMarkup2",
+     oldHTML: '<div id="badMarkup2">badMarkup2</div>',
+     newHTML: '<div id="badMarkup2">badMarkup2</div> hanging<div></div></div></div></body>',
+-    validate: function*(pageNode, pageNodeFront, selectedNodeFront, inspector) {
++    validate: function*(data, inspector, testActor) {
++      let {selector, pageNodeFront, selectedNodeFront} = data;
++
++      let textNodeNodeName = yield testActor.eval(
++        `document.querySelector("${selector}").nextSibling.nodeName`);
++      let textNodeData = yield testActor.eval(
++        `document.querySelector("${selector}").nextSibling.data`);
++
+       is(pageNodeFront, selectedNodeFront, "Original element is selected");
+-
+-      let textNode = pageNode.nextSibling;
+-
+-      is(textNode.nodeName, "#text", "Sibling is a text element");
+-      is(textNode.data, " hanging", "New text node has expected text content");
++      is(textNodeNodeName, "#text", "Sibling is a text element");
++      is(textNodeData, " hanging", "New text node has expected text content");
+     }
+   },
+   {
+     selector: "#badMarkup3",
+     oldHTML: '<div id="badMarkup3">badMarkup3</div>',
+     newHTML: '<div id="badMarkup3">badMarkup3 <em>Emphasized <strong> and strong</div>',
+-    validate: function*(pageNode, pageNodeFront, selectedNodeFront, inspector) {
++    validate: function*(data, inspector, testActor) {
++      let {selector, pageNodeFront, selectedNodeFront} = data;
++
++      let emTextContent = yield testActor.eval(
++        "document.querySelector('#badMarkup3 em').textContent");
++      let strongTextContent = yield testActor.eval(
++        "document.querySelector('#badMarkup3 strong').textContent");
++
+       is(pageNodeFront, selectedNodeFront, "Original element is selected");
+-
+-      let em = getNode("#badMarkup3 em");
+-      let strong = getNode("#badMarkup3 strong");
+-
+-      is(em.textContent, "Emphasized  and strong", "<em> was auto created");
+-      is(strong.textContent, " and strong", "<strong> was auto created");
++      is(emTextContent, "Emphasized  and strong", "<em> was auto created");
++      is(strongTextContent, " and strong", "<strong> was auto created");
+     }
+   },
+   {
+     selector: "#badMarkup4",
+     oldHTML: '<div id="badMarkup4">badMarkup4</div>',
+     newHTML: '<div id="badMarkup4">badMarkup4</p>',
+-    validate: function*(pageNode, pageNodeFront, selectedNodeFront, inspector) {
++    validate: function*(data, inspector, testActor) {
++      let {selector, pageNodeFront, selectedNodeFront} = data;
++
++      let divTextContent = yield testActor.eval(
++        "document.querySelector('#badMarkup4').textContent");
++      let divTagName = yield testActor.eval(
++        "document.querySelector('#badMarkup4').tagName");
++
++      let pTextContent = yield testActor.eval(
++        "document.querySelector('#badMarkup4 p').textContent");
++      let pTagName = yield testActor.eval(
++        "document.querySelector('#badMarkup4 p').tagName");
++
+       is(pageNodeFront, selectedNodeFront, "Original element is selected");
+-
+-      let div = getNode("#badMarkup4");
+-      let p = getNode("#badMarkup4 p");
+-
+-      is(div.textContent, "badMarkup4", "textContent is correct");
+-      is(div.tagName, "DIV", "did not change to <p> tag");
+-      is(p.textContent, "", "The <p> tag has no children");
+-      is(p.tagName, "P", "Created an empty <p> tag");
++      is(divTextContent, "badMarkup4", "textContent is correct");
++      is(divTagName, "DIV", "did not change to <p> tag");
++      is(pTextContent, "", "The <p> tag has no children");
++      is(pTagName, "P", "Created an empty <p> tag");
+     }
+   },
+   {
+     selector: "#badMarkup5",
+     oldHTML: '<p id="badMarkup5">badMarkup5</p>',
+     newHTML: '<p id="badMarkup5">badMarkup5 <div>with a nested div</div></p>',
+-    validate: function*(pageNode, pageNodeFront, selectedNodeFront, inspector) {
++    validate: function*(data, inspector, testActor) {
++      let {selector, pageNodeFront, selectedNodeFront} = data;
++
++      let nodiv = yield testActor.eval(
++        "document.querySelector('#badMarkup5 div')");
++      let pTagName = yield testActor.eval(
++        "document.querySelector('#badMarkup5').tagName");
++      let pTextContent = yield testActor.eval(
++        "document.querySelector('#badMarkup5').textContent");
++      let divTagName = yield testActor.eval(
++        "document.querySelector('#badMarkup5 ~ div').tagName");
++      let divTextContent = yield testActor.eval(
++        "document.querySelector('#badMarkup5 ~ div').textContent");
++
+       is(pageNodeFront, selectedNodeFront, "Original element is selected");
+-
+-      let p = getNode("#badMarkup5");
+-      let nodiv = getNode("#badMarkup5 div");
+-      let div = getNode("#badMarkup5 ~ div");
+-
+       ok(!nodiv, "The invalid markup got created as a sibling");
+-      is(p.textContent, "badMarkup5 ", "The <p> tag does not take in the <div> content");
+-      is(p.tagName, "P", "Did not change to a <div> tag");
+-      is(div.textContent, "with a nested div", "textContent is correct");
+-      is(div.tagName, "DIV", "Did not change to <p> tag");
++      is(pTextContent, "badMarkup5 ",
++        "The <p> tag does not take in the <div> content");
++      is(pTagName, "P", "Did not change to a <div> tag");
++      is(divTextContent, "with a nested div", "textContent is correct");
++      is(divTagName, "DIV", "Did not change to <p> tag");
+     }
+   }
+ ];
+ 
+ const TEST_URL = "data:text/html," +
+   "<!DOCTYPE html>" +
+   "<head><meta charset='utf-8' /></head>" +
+   "<body>" +
+   TEST_DATA.map(outer => outer.oldHTML).join("\n") +
+   "</body>" +
+   "</html>";
+ 
+ add_task(function*() {
+-  let {inspector} = yield addTab(TEST_URL).then(openInspector);
++  let {inspector, testActor} = yield addTab(TEST_URL).then(openInspector);
++
+   inspector.markup._frame.focus();
+-  yield runEditOuterHTMLTests(TEST_DATA, inspector);
++  yield runEditOuterHTMLTests(TEST_DATA, inspector, testActor);
+ });
 diff --git a/devtools/client/markupview/test/browser_markupview_html_edit_03.js b/devtools/client/markupview/test/browser_markupview_html_edit_03.js
 --- a/devtools/client/markupview/test/browser_markupview_html_edit_03.js
 +++ b/devtools/client/markupview/test/browser_markupview_html_edit_03.js
@@ -561,6 +834,47 @@ diff --git a/devtools/client/markupview/test/browser_markupview_image_tooltip_mu
   */
  function checkImageTooltip(size, {markup}) {
    let images = markup.tooltip.panel.getElementsByTagName("image");
+diff --git a/devtools/client/markupview/test/browser_markupview_keybindings_01.js b/devtools/client/markupview/test/browser_markupview_keybindings_01.js
+--- a/devtools/client/markupview/test/browser_markupview_keybindings_01.js
++++ b/devtools/client/markupview/test/browser_markupview_keybindings_01.js
+@@ -4,33 +4,35 @@
+ 
+ "use strict";
+ 
+ // Tests tabbing through attributes on a node
+ 
+ const TEST_URL = "data:text/html;charset=utf8,<div a b c d e id='test'></div>";
+ 
+ add_task(function*() {
+-  let {inspector} = yield addTab(TEST_URL).then(openInspector);
++  let {inspector, testActor} = yield addTab(TEST_URL).then(openInspector);
+ 
+   info("Focusing the tag editor of the test element");
+   let {editor} = yield getContainerForSelector("div", inspector);
+   editor.tag.focus();
+ 
+   info("Pressing tab and expecting to focus the ID attribute, always first");
+   EventUtils.sendKey("tab", inspector.panelWin);
+   checkFocusedAttribute("id");
+ 
+   info("Hit enter to turn the attribute to edit mode");
+   EventUtils.sendKey("return", inspector.panelWin);
+   checkFocusedAttribute("id", true);
+ 
+   // Check the order of the other attributes in the DOM to the check they appear
+   // correctly in the markup-view
+-  let attributes = [...getNode("div").attributes].filter(attr => attr.name !== "id");
++  let attributes = (yield testActor.getAttributes("div")).filter(attr => {
++    return attr.name !== "id";
++  });
+ 
+   info("Tabbing forward through attributes in edit mode");
+   for (let {name} of attributes) {
+     collapseSelectionAndTab(inspector);
+     checkFocusedAttribute(name, true);
+   }
+ 
+   info("Tabbing backward through attributes in edit mode");
 diff --git a/devtools/client/markupview/test/browser_markupview_keybindings_04.js b/devtools/client/markupview/test/browser_markupview_keybindings_04.js
 --- a/devtools/client/markupview/test/browser_markupview_keybindings_04.js
 +++ b/devtools/client/markupview/test/browser_markupview_keybindings_04.js
@@ -883,7 +1197,7 @@ diff --git a/devtools/client/markupview/test/browser_markupview_mutation_01.js b
        let container = yield getContainerForSelector("#node2", inspector);
        let openTags = container.children.querySelectorAll(".open .tag");
        is(openTags.length, 3, "There are now 3 tags in node2");
-@@ -225,24 +224,32 @@ const TEST_DATA = [
+@@ -225,24 +224,24 @@ const TEST_DATA = [
      //        node21
      // will become:
      // body
@@ -893,20 +1207,18 @@ diff --git a/devtools/client/markupview/test/browser_markupview_mutation_01.js b
      //      node18
      //        node19
 -    test: () => {
+-      let node18 = getNode("#node18");
+-      let node20 = getNode("#node20");
 +    test: function*(testActor) {
-       let node18 = getNode("#node18");
-       let node20 = getNode("#node20");
- 
-       let node1 = getNode("#node1");
- 
-       node1.appendChild(node20);
-       node20.appendChild(node18);
-+
 +      yield testActor.eval(`
 +        let node1 = document.querySelector("#node1");
 +        let node18 = document.querySelector("#node18");
 +        let node20 = document.querySelector("#node20");
-+
+ 
+-      let node1 = getNode("#node1");
+-
+-      node1.appendChild(node20);
+-      node20.appendChild(node18);
 +        node1.appendChild(node20);
 +        node20.appendChild(node18);`);
      },
@@ -917,7 +1229,7 @@ diff --git a/devtools/client/markupview/test/browser_markupview_mutation_01.js b
        is(children.childNodes.length, 2,
          "Node1 now has 2 children (textnode and node20)");
  
-@@ -258,43 +265,38 @@ const TEST_DATA = [
+@@ -258,43 +257,38 @@ const TEST_DATA = [
        let node18 = node20Children.childNodes[1];
        is(node18.querySelector(".open .attreditor .attr-value").textContent.trim(),
          "node18", "Node20's second child is indeed node18");
@@ -1114,16 +1426,220 @@ diff --git a/devtools/client/markupview/test/browser_markupview_mutation_02.js b
    ok(container.tagState.classList.contains("theme-bg-contrast"),
      "Markup container for node is flashing");
  
+diff --git a/devtools/client/markupview/test/browser_markupview_node_not_displayed_02.js b/devtools/client/markupview/test/browser_markupview_node_not_displayed_02.js
+--- a/devtools/client/markupview/test/browser_markupview_node_not_displayed_02.js
++++ b/devtools/client/markupview/test/browser_markupview_node_not_displayed_02.js
+@@ -8,114 +8,122 @@
+ // their display changes
+ 
+ const TEST_URL = TEST_URL_ROOT + "doc_markup_not_displayed.html";
+ const TEST_DATA = [
+   {
+     desc: "Hiding a node by creating a new stylesheet",
+     selector: "#normal-div",
+     before: true,
+-    changeStyle: (doc, node) => {
+-      let div = doc.createElement("div");
+-      div.id = "new-style";
+-      div.innerHTML = "<style>#normal-div {display:none;}</style>";
+-      doc.body.appendChild(div);
++    changeStyle: function*(selector, testActor) {
++      yield testActor.eval(`
++        let div = document.createElement("div");
++        div.id = "new-style";
++        div.innerHTML = "<style>#normal-div {display:none;}</style>";
++        document.body.appendChild(div);`);
+     },
+     after: false
+   },
+   {
+     desc: "Showing a node by deleting an existing stylesheet",
+     selector: "#normal-div",
+     before: false,
+-    changeStyle: (doc, node) => {
+-      doc.getElementById("new-style").remove();
++    changeStyle: function*(selector, testActor) {
++      yield testActor.removeNode("#new-style");
+     },
+     after: true
+   },
+   {
+     desc: "Hiding a node by changing its style property",
+     selector: "#display-none",
+     before: false,
+-    changeStyle: (doc, node) => {
+-      node.style.display = "block";
++    changeStyle: function*(selector, testActor) {
++      yield testActor.setProperty(selector, "style", "display: block");
+     },
+     after: true
+   },
+   {
+     desc: "Showing a node by removing its hidden attribute",
+     selector: "#hidden-true",
+     before: false,
+-    changeStyle: (doc, node) => {
+-      node.removeAttribute("hidden");
++    changeStyle: function*(selector, testActor) {
++      yield testActor.removeAttribute(selector, "hidden");
+     },
+     after: true
+   },
+   {
+     desc: "Hiding a node by adding a hidden attribute",
+     selector: "#hidden-true",
+     before: true,
+-    changeStyle: (doc, node) => {
+-      node.setAttribute("hidden", "true");
++    changeStyle: function*(selector, testActor) {
++      yield testActor.setAttribute(selector, "hidden", "true");
+     },
+     after: false
+   },
+   {
+     desc: "Showing a node by changin a stylesheet's rule",
+     selector: "#hidden-via-stylesheet",
+     before: false,
+-    changeStyle: (doc, node) => {
+-      doc.styleSheets[0].cssRules[0].style.setProperty("display", "inline");
++    changeStyle: function*(selector, testActor) {
++      yield testActor.eval(`
++        let cssRule = document.styleSheets[0].cssRules[0];
++        cssRule.style.setProperty("display", "inline");`);
+     },
+     after: true
+   },
+   {
+     desc: "Hiding a node by adding a new rule to a stylesheet",
+     selector: "#hidden-via-stylesheet",
+     before: true,
+-    changeStyle: (doc, node) => {
+-      doc.styleSheets[0].insertRule(
+-        "#hidden-via-stylesheet {display: none;}", 1);
++    changeStyle: function*(selector, testActor) {
++      yield testActor.eval(`
++        let stylesheet = document.styleSheets[0];
++        stylesheet.insertRule("${selector} {display: none;}", 1);`);
+     },
+     after: false
+   },
+   {
+     desc: "Hiding a node by adding a class that matches an existing rule",
+     selector: "#normal-div",
+     before: true,
+-    changeStyle: (doc, node) => {
+-      doc.styleSheets[0].insertRule(
+-        ".a-new-class {display: none;}", 2);
+-      node.classList.add("a-new-class");
++    changeStyle: function*(selector, testActor) {
++      yield testActor.eval(`
++        let node = document.querySelector("${selector}");
++        let stylesheet = document.styleSheets[0];
++        stylesheet.insertRule(".a-new-class {display: none;}", 2);
++        node.classList.add("a-new-class");`);
+     },
+     after: false
+   }
+ ];
+ 
+ add_task(function*() {
+-  let {inspector} = yield addTab(TEST_URL).then(openInspector);
++  let {inspector, testActor} = yield addTab(TEST_URL).then(openInspector);
+ 
+   for (let data of TEST_DATA) {
+     info("Running test case: " + data.desc);
+-    yield runTestData(inspector, data);
++    yield runTestData(inspector, testActor, data);
+   }
+ });
+ 
+-function* runTestData(inspector, {selector, before, changeStyle, after}) {
++function* runTestData(inspector, testActor, data) {
++  let {selector, before, changeStyle, after} = data;
++
+   info("Getting the " + selector + " test node");
+   let nodeFront = yield getNodeFront(selector, inspector);
+   let container = getContainerForNodeFront(nodeFront, inspector);
+   is(!container.elt.classList.contains("not-displayed"), before,
+     "The container is marked as " + (before ? "shown" : "hidden"));
+ 
+   info("Listening for the display-change event");
+   let onDisplayChanged = promise.defer();
+   inspector.markup.walker.once("display-change", onDisplayChanged.resolve);
+ 
+   info("Making style changes");
+-  changeStyle(content.document, getNode(selector));
++  yield changeStyle(selector, testActor);
+   let nodes = yield onDisplayChanged.promise;
+ 
+   info("Verifying that the list of changed nodes include our container");
+ 
+   ok(nodes.length, "The display-change event was received with a nodes");
+   let foundContainer = false;
+   for (let node of nodes) {
+     if (getContainerForNodeFront(node, inspector) === container) {
+diff --git a/devtools/client/markupview/test/browser_markupview_pagesize_02.js b/devtools/client/markupview/test/browser_markupview_pagesize_02.js
+--- a/devtools/client/markupview/test/browser_markupview_pagesize_02.js
++++ b/devtools/client/markupview/test/browser_markupview_pagesize_02.js
+@@ -9,37 +9,38 @@
+ // actually shows the nodes
+ 
+ const TEST_URL = TEST_URL_ROOT + "doc_markup_pagesize_02.html";
+ 
+ // Make sure nodes are hidden when there are more than 5 in a row
+ Services.prefs.setIntPref("devtools.markup.pagesize", 5);
+ 
+ add_task(function*() {
+-  let {inspector} = yield addTab(TEST_URL).then(openInspector);
++  let {inspector, testActor} = yield addTab(TEST_URL).then(openInspector);
+ 
+   info("Selecting the UL node");
+   yield clickContainer("ul", inspector);
+   info("Reloading the page with the UL node selected will expand its children");
+   yield reloadPage(inspector);
+   yield inspector.markup._waitForChildren();
+ 
+   info("Click on the 'show all nodes' button in the UL's list of children");
+   yield showAllNodes(inspector);
+ 
+-  yield assertAllNodesAreVisible(inspector);
++  yield assertAllNodesAreVisible(inspector, testActor);
+ });
+ 
+ function* showAllNodes(inspector) {
+   let container = yield getContainerForSelector("ul", inspector);
+   let button = container.elt.querySelector("button");
+   ok(button, "All nodes button is here");
+   let win = button.ownerDocument.defaultView;
+ 
+   EventUtils.sendMouseEvent({type: "click"}, button, win);
+   yield inspector.markup._waitForChildren();
+ }
+ 
+-function* assertAllNodesAreVisible(inspector) {
++function* assertAllNodesAreVisible(inspector, testActor) {
+   let container = yield getContainerForSelector("ul", inspector);
+   ok(!container.elt.querySelector("button"), "All nodes button isn't here anymore");
+-  is(container.children.childNodes.length, getNode("ul").children.length);
++  is(container.children.childNodes.length,
++    (yield testActor.eval("document.querySelector('ul').children.length")));
+ }
 diff --git a/devtools/client/markupview/test/browser_markupview_remove_xul_attributes.js b/devtools/client/markupview/test/browser_markupview_remove_xul_attributes.js
 --- a/devtools/client/markupview/test/browser_markupview_remove_xul_attributes.js
 +++ b/devtools/client/markupview/test/browser_markupview_remove_xul_attributes.js
-@@ -10,18 +10,20 @@
+@@ -5,23 +5,22 @@
+ "use strict";
+ 
+ // Test confirms that XUL attributes don't show up as empty
+ // attributes after being deleted
+ 
  const TEST_URL = TEST_URL_ROOT + "doc_markup_xul.xul";
  
  add_task(function*() {
-   let {inspector} = yield addTab(TEST_URL).then(openInspector);
- 
-   let panel = yield getNode("#test", inspector);
+-  let {inspector} = yield addTab(TEST_URL).then(openInspector);
+-
+-  let panel = yield getNode("#test", inspector);
++  let {inspector, testActor} = yield addTab(TEST_URL).then(openInspector);
    let panelFront = yield getNodeFront("#test", inspector);
  
 -  ok(panelFront.hasAttribute("id"), "panelFront has id attribute in the beginning");
@@ -1131,15 +1647,184 @@ diff --git a/devtools/client/markupview/test/browser_markupview_remove_xul_attri
 +    "panelFront has id attribute in the beginning");
  
    info("Removing panel's id attribute");
-   panel.removeAttribute("id");
+-  panel.removeAttribute("id");
++  let onMutation = inspector.once("markupmutation");
++  yield testActor.removeAttribute("#test", "id");
++  yield onMutation;
  
-   info("Waiting for markupmutation");
-   yield inspector.once("markupmutation");
- 
+-  info("Waiting for markupmutation");
+-  yield inspector.once("markupmutation");
+-
 -  is(panelFront.hasAttribute("id"), false, "panelFront doesn't have id attribute anymore");
 +  is(panelFront.hasAttribute("id"), false,
 +    "panelFront doesn't have id attribute anymore");
  });
+diff --git a/devtools/client/markupview/test/browser_markupview_tag_edit_05.js b/devtools/client/markupview/test/browser_markupview_tag_edit_05.js
+--- a/devtools/client/markupview/test/browser_markupview_tag_edit_05.js
++++ b/devtools/client/markupview/test/browser_markupview_tag_edit_05.js
+@@ -67,11 +67,11 @@ var TEST_DATA = [{
+   desc: "Add attribute with xmlns",
+   text: "xmlns:edi='http://ecommerce.example.org/schema'",
+   expectedAttributes: {
+     'xmlns:edi': "http://ecommerce.example.org/schema"
+   }
+ }];
+ 
+ add_task(function*() {
+-  let {inspector} = yield addTab(TEST_URL).then(openInspector);
++  let {inspector, testActor} = yield addTab(TEST_URL).then(openInspector);
+   yield runAddAttributesTests(TEST_DATA, "div", inspector)
+ });
+diff --git a/devtools/client/markupview/test/browser_markupview_tag_edit_07.js b/devtools/client/markupview/test/browser_markupview_tag_edit_07.js
+--- a/devtools/client/markupview/test/browser_markupview_tag_edit_07.js
++++ b/devtools/client/markupview/test/browser_markupview_tag_edit_07.js
+@@ -40,39 +40,39 @@ var TEST_DATA = [{
+     style: ""
+   }
+ }, {
+   desc: "Try to add long data URL to make sure it is collapsed in attribute editor.",
+   text: "style='"+DATA_URL_INLINE_STYLE+"'",
+   expectedAttributes: {
+     'style': DATA_URL_INLINE_STYLE
+   },
+-  validate: (element, container, inspector) => {
++  validate: (selector, container, inspector) => {
+     let editor = container.editor;
+     let visibleAttrText = editor.attrElements.get("style").querySelector(".attr-value").textContent;
+     is (visibleAttrText, DATA_URL_INLINE_STYLE_COLLAPSED);
+   }
+ }, {
+   desc: "Try to add long attribute to make sure it is collapsed in attribute editor.",
+   text: 'data-long="'+LONG_ATTRIBUTE+'"',
+   expectedAttributes: {
+     'data-long':LONG_ATTRIBUTE
+   },
+-  validate: (element, container, inspector) => {
++  validate: (selector, container, inspector) => {
+     let editor = container.editor;
+     let visibleAttrText = editor.attrElements.get("data-long").querySelector(".attr-value").textContent;
+     is (visibleAttrText, LONG_ATTRIBUTE_COLLAPSED)
+   }
+ }, {
+   desc: "Try to add long data URL to make sure it is collapsed in attribute editor.",
+   text: 'src="'+DATA_URL_ATTRIBUTE+'"',
+   expectedAttributes: {
+     "src": DATA_URL_ATTRIBUTE
+   },
+-  validate: (element, container, inspector) => {
++  validate: (selector, container, inspector) => {
+     let editor = container.editor;
+     let visibleAttrText = editor.attrElements.get("src").querySelector(".attr-value").textContent;
+     is (visibleAttrText, DATA_URL_ATTRIBUTE_COLLAPSED);
+   }
+ }];
+ 
+ add_task(function*() {
+   let {inspector} = yield addTab(TEST_URL).then(openInspector);
+diff --git a/devtools/client/markupview/test/browser_markupview_tag_edit_12.js b/devtools/client/markupview/test/browser_markupview_tag_edit_12.js
+--- a/devtools/client/markupview/test/browser_markupview_tag_edit_12.js
++++ b/devtools/client/markupview/test/browser_markupview_tag_edit_12.js
+@@ -5,23 +5,23 @@
+ "use strict";
+ 
+ // Tests that focus position is correct when tabbing through and editing
+ // attributes.
+ 
+ const TEST_URL = "data:text/html;charset=utf8,<div id='attr' c='3' b='2' a='1'></div><div id='delattr' last='1' tobeinvalid='2'></div>";
+ 
+ add_task(function*() {
+-  let {inspector} = yield addTab(TEST_URL).then(openInspector);
++  let {inspector, testActor} = yield addTab(TEST_URL).then(openInspector);
+ 
+-  yield testAttributeEditing(inspector);
+-  yield testAttributeDeletion(inspector);
++  yield testAttributeEditing(inspector, testActor);
++  yield testAttributeDeletion(inspector, testActor);
+ });
+ 
+-function* testAttributeEditing(inspector) {
++function* testAttributeEditing(inspector, testActor) {
+   info("Testing focus position after attribute editing");
+ 
+   // Modifying attributes reorders them in the internal representation to move
+   // the modified attribute to the end. breadcrumbs.js will update attributes
+   // to match original order if you selectNode before modifying attributes.
+   // So, hacky workaround for consistency with manual testing.
+   // Should be removed after Bug 1093593.
+   yield selectNode("#attr", inspector);
+@@ -29,17 +29,17 @@ function* testAttributeEditing(inspector
+   info("Setting the first non-id attribute in edit mode");
+   yield activateFirstAttribute("#attr", inspector); // focuses id
+   collapseSelectionAndTab(inspector); // focuses the first attr after id
+ 
+   // Detect the attributes order from the DOM, instead of assuming an order in
+   // the test, because the NamedNodeMap returned by element.attributes doesn't
+   // guaranty any specific order.
+   // Filter out the id attribute as the markup-view places it first anyway.
+-  let attrs = getNodeAttributesOtherThanId("#attr");
++  let attrs = yield getNodeAttributesOtherThanId("#attr", testActor);
+ 
+   info("Editing this attribute, keeping the same name, and tabbing to the next");
+   yield editAttributeAndTab(attrs[0].name + '="99"', inspector);
+   checkFocusedAttribute(attrs[1].name, true);
+ 
+   info("Editing the new focused attribute, keeping the name, and tabbing to the previous");
+   yield editAttributeAndTab(attrs[1].name + '="99"', inspector, true);
+   checkFocusedAttribute(attrs[0].name, true);
+@@ -47,17 +47,17 @@ function* testAttributeEditing(inspector
+   info("Editing attribute name, changes attribute order");
+   yield editAttributeAndTab("d='4'", inspector);
+   checkFocusedAttribute("id", true);
+ 
+   // Escape of the currently focused field for the next test
+   EventUtils.sendKey("escape", inspector.panelWin);
+ }
+ 
+-function* testAttributeDeletion(inspector) {
++function* testAttributeDeletion(inspector, testActor) {
+   info("Testing focus position after attribute deletion");
+ 
+   // Modifying attributes reorders them in the internal representation to move
+   // the modified attribute to the end. breadcrumbs.js will update attributes
+   // to match original order if you selectNode before modifying attributes.
+   // So, hacky workaround for consistency with manual testing.
+   // Should be removed after Bug 1093593.
+   yield selectNode("#delattr", inspector);
+@@ -65,17 +65,17 @@ function* testAttributeDeletion(inspecto
+   info("Setting the first non-id attribute in edit mode");
+   yield activateFirstAttribute("#delattr", inspector); // focuses id
+   collapseSelectionAndTab(inspector); // focuses the first attr after id
+ 
+   // Detect the attributes order from the DOM, instead of assuming an order in
+   // the test, because the NamedNodeMap returned by element.attributes doesn't
+   // guaranty any specific order.
+   // Filter out the id attribute as the markup-view places it first anyway.
+-  let attrs = getNodeAttributesOtherThanId("#delattr");
++  let attrs = yield getNodeAttributesOtherThanId("#delattr", testActor);
+ 
+   info("Entering an invalid attribute to delete the attribute");
+   yield editAttributeAndTab('"', inspector);
+   checkFocusedAttribute(attrs[1].name, true);
+ 
+   info("Deleting the last attribute");
+   yield editAttributeAndTab(" ", inspector);
+ 
+@@ -105,11 +105,13 @@ function* activateFirstAttribute(contain
+   let {editor} = yield getContainerForSelector(container, inspector);
+   editor.tag.focus();
+ 
+   // Go to "id" attribute and trigger edit mode.
+   EventUtils.sendKey("tab", inspector.panelWin);
+   EventUtils.sendKey("return", inspector.panelWin);
+ }
+ 
+-function getNodeAttributesOtherThanId(selector) {
+-  return [...getNode(selector).attributes].filter(attr => attr.name !== "id");
++function* getNodeAttributesOtherThanId(selector, testActor) {
++  return (yield testActor.getAttributes(selector)).filter(attr => {
++    return attr.name !== "id";
++  });
+ }
 diff --git a/devtools/client/markupview/test/browser_markupview_textcontent_edit_01.js b/devtools/client/markupview/test/browser_markupview_textcontent_edit_01.js
 --- a/devtools/client/markupview/test/browser_markupview_textcontent_edit_01.js
 +++ b/devtools/client/markupview/test/browser_markupview_textcontent_edit_01.js
@@ -1410,6 +2095,153 @@ diff --git a/devtools/client/markupview/test/head.js b/devtools/client/markupvie
   * Wait for a content -> chrome message on the message manager (the window
   * messagemanager is used).
   * @param {String} name The message name
+@@ -189,30 +197,16 @@ function executeInContent(name, data={},
+ /**
+  * Reload the current tab location.
+  */
+ function reloadTab() {
+   return executeInContent("devtools:test:reload", {}, {}, false);
+ }
+ 
+ /**
+- * Simple DOM node accesor function that takes either a node or a string css
+- * selector as argument and returns the corresponding node
+- * @param {String|DOMNode} nodeOrSelector
+- * @return {DOMNode|CPOW} Note that in e10s mode a CPOW object is returned which
+- * doesn't implement *all* of the DOMNode's properties
+- */
+-function getNode(nodeOrSelector) {
+-  info("Getting the node for '" + nodeOrSelector + "'");
+-  return typeof nodeOrSelector === "string" ?
+-    content.document.querySelector(nodeOrSelector) :
+-    nodeOrSelector;
+-}
+-
+-/**
+  * Get the NodeFront for a given css selector, via the protocol
+  * @param {String|NodeFront} selector
+  * @param {InspectorPanel} inspector The instance of InspectorPanel currently
+  * loaded in the toolbox
+  * @return {Promise} Resolves to the NodeFront instance
+  */
+ function getNodeFront(selector, {walker}) {
+   if (selector._form) {
+diff --git a/devtools/client/markupview/test/helper_attributes_test_runner.js b/devtools/client/markupview/test/helper_attributes_test_runner.js
+--- a/devtools/client/markupview/test/helper_attributes_test_runner.js
++++ b/devtools/client/markupview/test/helper_attributes_test_runner.js
+@@ -45,27 +45,25 @@ function runAddAttributesTests(tests, no
+  *          - {DOMNode} The element being tested
+  *          - {MarkupContainer} The corresponding container in the markup-view
+  *          - {InspectorPanel} The instance of the InspectorPanel opened
+  * @param {String} selector The node selector corresponding to the test element
+  * @param {InspectorPanel} inspector The instance of InspectorPanel currently
+  * opened
+  */
+ function* runAddAttributesTest(test, selector, inspector) {
+-  let element = getNode(selector);
+-
+   info("Starting add-attribute test: " + test.desc);
+   yield addNewAttributes(selector, test.text, inspector);
+ 
+   info("Assert that the attribute(s) has/have been applied correctly");
+   yield assertAttributes(selector, test.expectedAttributes);
+ 
+   if (test.validate) {
+     let container = yield getContainerForSelector(selector, inspector);
+-    test.validate(element, container, inspector);
++    test.validate(selector, container, inspector);
+   }
+ 
+   info("Undo the change");
+   yield undoChange(inspector);
+ 
+   info("Assert that the attribute(s) has/have been removed correctly");
+   yield assertAttributes(selector, {});
+ }
+diff --git a/devtools/client/markupview/test/helper_outerhtml_test_runner.js b/devtools/client/markupview/test/helper_outerhtml_test_runner.js
+--- a/devtools/client/markupview/test/helper_outerhtml_test_runner.js
++++ b/devtools/client/markupview/test/helper_outerhtml_test_runner.js
+@@ -10,21 +10,21 @@
+  * This test runner will wait for the mutation event to be fired and will check
+  * a few things. Each test may also provide its own validate function to perform
+  * assertions and verify that the new outer html is correct.
+  * @param {Array} tests See runEditOuterHTMLTest for the structure
+  * @param {InspectorPanel} inspector The instance of InspectorPanel currently
+  * opened
+  * @return a promise that resolves when the tests have run
+  */
+-function runEditOuterHTMLTests(tests, inspector) {
++function runEditOuterHTMLTests(tests, inspector, testActor) {
+   info("Running " + tests.length + " edit-outer-html tests");
+   return Task.spawn(function* () {
+     for (let step of TEST_DATA) {
+-      yield runEditOuterHTMLTest(step, inspector);
++      yield runEditOuterHTMLTest(step, inspector, testActor);
+     }
+   });
+ }
+ 
+ /**
+  * Run a single edit-outer-html test.
+  * See runEditOuterHTMLTests for a description.
+  * @param {Object} test A test object should contain the following properties:
+@@ -32,44 +32,48 @@ function runEditOuterHTMLTests(tests, in
+  *        - oldHTML {String}
+  *        - newHTML {String}
+  *        - validate {Function} will be executed when the edition test is done,
+  *        after the new outer-html has been inserted. Should be used to verify
+  *        the actual DOM, see if it corresponds to the newHTML string provided
+  * @param {InspectorPanel} inspector The instance of InspectorPanel currently
+  * opened
+  */
+-function* runEditOuterHTMLTest(test, inspector) {
++function* runEditOuterHTMLTest(test, inspector, testActor) {
+   info("Running an edit outerHTML test on '" + test.selector + "'");
+   yield selectNode(test.selector, inspector);
+   let oldNodeFront = inspector.selection.nodeFront;
+ 
+   let onUpdated = inspector.once("inspector-updated");
+ 
+   info("Listen for reselectedonremoved and edit the outerHTML");
+   let onReselected = inspector.markup.once("reselectedonremoved");
+   yield inspector.markup.updateNodeOuterHTML(inspector.selection.nodeFront,
+                                              test.newHTML, test.oldHTML);
+   yield onReselected;
+ 
+-  // Typically selectedNode will === pageNode, but if a new element has been
+-  // injected in front of it, this will not be the case. If this happens.
++  // Typically selectedNode will === node matched by selector,
++  // but if a new element has been injected in front of it,
++  // this will not be the case. If this happens.
+   let selectedNodeFront = inspector.selection.nodeFront;
+-  let pageNodeFront = yield inspector.walker.querySelector(inspector.walker.rootNode, test.selector);
+-  let pageNode = getNode(test.selector);
++  let {walker} = inspector;
++  let pageNodeFront = yield walker.querySelector(walker.rootNode, test.selector);
+ 
+   if (test.validate) {
+-    yield test.validate(pageNode, pageNodeFront, selectedNodeFront, inspector);
++    let data = {selector: test.selector, pageNodeFront, selectedNodeFront};
++    yield test.validate(data, inspector, testActor);
+   } else {
+-    is(pageNodeFront, selectedNodeFront, "Original node (grabbed by selector) is selected");
++    is(pageNodeFront, selectedNodeFront,
++      "Original node (grabbed by selector) is selected");
+     let {outerHTML} = yield getNodeInfo(test.selector);
+     is(outerHTML, test.newHTML, "Outer HTML has been updated");
+   }
+ 
+   // Wait for the inspector to be fully updated to avoid causing errors by
+   // abruptly closing hanging requests when the test ends
+   yield onUpdated;
+ 
+   let closeTagLine = inspector.markup.getContainer(pageNodeFront).closeTagLine;
+   if (closeTagLine) {
+-    is(closeTagLine.querySelectorAll(".theme-fg-contrast").length, 0, "No contrast class");
++    is(closeTagLine.querySelectorAll(".theme-fg-contrast").length, 0,
++      "No contrast class");
+   }
+ }
 diff --git a/devtools/client/shared/test/test-actor.js b/devtools/client/shared/test/test-actor.js
 --- a/devtools/client/shared/test/test-actor.js
 +++ b/devtools/client/shared/test/test-actor.js
@@ -1449,7 +2281,7 @@ diff --git a/devtools/client/shared/test/test-actor.js b/devtools/client/shared/
    }, {
      request: {
        selector: Arg(0, "string"),
-@@ -426,33 +426,118 @@ var TestActor = exports.TestActor = prot
+@@ -426,33 +426,156 @@ var TestActor = exports.TestActor = prot
        value: Arg(2, "string")
      },
      response: {}
@@ -1492,6 +2324,30 @@ diff --git a/devtools/client/shared/test/test-actor.js b/devtools/client/shared/
 +    },
 +    response: {
 +      value: RetVal("string")
++    }
++  }),
++
++  /**
++   * Get attributes on a DOM Node.
++   *
++   * @param  {String} selector
++   * @return {Array}
++   *         Array of attributes (e.g. [{name: "id", value: "value"}]).
++   */
++  getAttributes: protocol.method(function (selector) {
++    let node = this._querySelector(selector);
++    return [...node.attributes].map(attribute => {
++      return {
++        name: attribute.name,
++        value: attribute.value
++      }
++    });
++  }, {
++    request: {
++      selector: Arg(0, "string"),
++    },
++    response: {
++      value: RetVal("json")
 +    }
 +  }),
 +
@@ -1540,7 +2396,7 @@ diff --git a/devtools/client/shared/test/test-actor.js b/devtools/client/shared/
 +  }, {
 +    request: {
 +      selector: Arg(0, "string"),
-+      className: Arg(1, "string"),
++      className: Arg(1, "string")
 +    },
 +    response: {}
 +  }),
@@ -1556,7 +2412,21 @@ diff --git a/devtools/client/shared/test/test-actor.js b/devtools/client/shared/
 +  }, {
 +    request: {
 +      selector: Arg(0, "string"),
-+      className: Arg(1, "string"),
++      className: Arg(1, "string")
++    },
++    response: {}
++  }),
++
++  /**
++   * Remove a DOM Node.
++   * @param {String} selector
++   */
++  removeNode: protocol.method(function(selector) {
++    let node = this._querySelector(selector);
++    node.remove();
++  }, {
++    request: {
++      selector: Arg(0, "string")
 +    },
 +    response: {}
 +  }),
