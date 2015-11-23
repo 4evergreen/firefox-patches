@@ -1,12 +1,12 @@
 # HG changeset patch
 # User Grisha Pushkov <grisha@push.org.ru>
-# Parent  2fe63f770d60eb93a919912d98d5afb5761b3366
+# Parent  489332006384610e3322739f66729448da0e98d9
 Bug 1093593 - Order of attributes in markup view depends on input order; r=pbro
 
 diff --git a/devtools/client/markupview/markup-view.js b/devtools/client/markupview/markup-view.js
 --- a/devtools/client/markupview/markup-view.js
 +++ b/devtools/client/markupview/markup-view.js
-@@ -2630,17 +2630,17 @@ ElementEditor.prototype = {
+@@ -2634,17 +2634,17 @@ ElementEditor.prototype = {
  
        if (canSimplyShowEditor) {
          // Element already exists and doesn't need to be recreated.
@@ -28,7 +28,7 @@ diff --git a/devtools/client/markupview/markup-view.js b/devtools/client/markupv
 diff --git a/devtools/client/markupview/test/browser.ini b/devtools/client/markupview/test/browser.ini
 --- a/devtools/client/markupview/test/browser.ini
 +++ b/devtools/client/markupview/test/browser.ini
-@@ -110,13 +110,14 @@ skip-if = e10s # Bug 1036409 - The last 
+@@ -111,13 +111,14 @@ skip-if = e10s # Bug 1036409 - The last 
  [browser_markupview_tag_edit_05.js]
  [browser_markupview_tag_edit_06.js]
  [browser_markupview_tag_edit_07.js]
@@ -274,7 +274,7 @@ diff --git a/devtools/client/markupview/test/head.js b/devtools/client/markupvie
  registerCleanupFunction(() => {
    Services.prefs.clearUserPref("devtools.inspector.htmlPanelOpen");
    Services.prefs.clearUserPref("devtools.inspector.sidebarOpen");
-@@ -134,17 +138,21 @@ function openToolbox(toolId) {
+@@ -132,17 +136,21 @@ function openToolbox(toolId) {
   * @return a promise that resolves when the inspector is ready
   */
  function openInspector() {
@@ -297,7 +297,7 @@ diff --git a/devtools/client/markupview/test/head.js b/devtools/client/markupvie
   * Wait for a content -> chrome message on the message manager (the window
   * messagemanager is used).
   * @param {String} name The message name
-@@ -653,16 +661,32 @@ function checkFocusedAttribute(attrName,
+@@ -651,16 +659,32 @@ function checkFocusedAttribute(attrName,
    let focusedAttr = Services.focus.focusedElement;
    is(focusedAttr ? focusedAttr.parentNode.dataset.attr : undefined,
      attrName, attrName + " attribute editor is currently focused.");
@@ -422,10 +422,61 @@ diff --git a/devtools/client/shared/test/test-actor.js b/devtools/client/shared/
  
      let deferred = promise.defer();
  
+diff --git a/devtools/client/webconsole/test/browser_webconsole_output_dom_elements_02.js b/devtools/client/webconsole/test/browser_webconsole_output_dom_elements_02.js
+--- a/devtools/client/webconsole/test/browser_webconsole_output_dom_elements_02.js
++++ b/devtools/client/webconsole/test/browser_webconsole_output_dom_elements_02.js
+@@ -22,41 +22,41 @@ const TEST_DATA = [
+     attrs: [{name: "some-attribute", value: "some-value"}]
+   },
+   {
+     input: "testBodyNode()",
+     output: '<body id="body-id" class="body-class">',
+     tagName: "BODY",
+     attrs: [
+       {
+-        name: "id", value: "body-id"
++        name: "class", value: "body-class"
+       },
+       {
+-        name: "class", value: "body-class"
++        name: "id", value: "body-id"
+       }
+     ]
+   },
+   {
+     input: "testNodeInIframe()",
+     output: "<p>",
+     tagName: "P",
+     attrs: []
+   },
+   {
+     input: "testDocumentElement()",
+     output: '<html lang="en-US" dir="ltr">',
+     tagName: "HTML",
+     attrs: [
+       {
++        name: "dir",
++        value: "ltr"
++      },
++      {
+         name: "lang",
+         value: "en-US"
+-      },
+-      {
+-        name: "dir",
+-        value: "ltr"
+       }
+     ]
+   }
+ ];
+ 
+ function test() {
+   Task.spawn(function*() {
+     let {tab} = yield loadTab(TEST_URI);
 diff --git a/devtools/server/actors/inspector.js b/devtools/server/actors/inspector.js
 --- a/devtools/server/actors/inspector.js
 +++ b/devtools/server/actors/inspector.js
-@@ -414,17 +414,21 @@ var NodeActor = exports.NodeActor = prot
+@@ -417,17 +417,21 @@ var NodeActor = exports.NodeActor = prot
      }
      return false;
    },
