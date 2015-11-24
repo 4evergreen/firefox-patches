@@ -1,12 +1,31 @@
 # HG changeset patch
 # User Grisha Pushkov <grisha@push.org.ru>
-# Parent  81de57cbfed15c61062f2292cef14caf9c21d989
+# Parent  489332006384610e3322739f66729448da0e98d9
 Bug 1221183 - Double-click on a tag shouldn't only allow you to edit tag but also add whatever you want like classes or id; r=pbro
 
 diff --git a/devtools/client/markupview/markup-view.js b/devtools/client/markupview/markup-view.js
 --- a/devtools/client/markupview/markup-view.js
 +++ b/devtools/client/markupview/markup-view.js
-@@ -2532,24 +2532,17 @@ function ElementEditor(aContainer, aNode
+@@ -1110,17 +1110,17 @@ MarkupView.prototype = {
+       if (this._inspector.selection.nodeFront === parentContainer.node ||
+           (this._inspector.selection.nodeFront === removedNode && isHTMLTag)) {
+         let childContainers = parentContainer.getChildContainers();
+         if (childContainers && childContainers[childIndex]) {
+           this.markNodeAsSelected(childContainers[childIndex].node, reason);
+           if (childContainers[childIndex].hasChildren) {
+             this.expandNode(childContainers[childIndex].node);
+           }
+-          this.emit("reselectedonremoved");
++          this.emit("reselectedonremoved", childContainers[childIndex]);
+         }
+       }
+     };
+ 
+     // Start listening for mutations until we find a childList change that has
+     // removedNode removed.
+     this._inspector.on("markupmutation", onMutations);
+   },
+@@ -2536,24 +2536,17 @@ function ElementEditor(aContainer, aNode
      stopOnReturn: true,
      contentType: InplaceEditor.CONTENT_TYPES.CSS_MIXED,
      popup: this.markup.popup,
@@ -32,7 +51,7 @@ diff --git a/devtools/client/markupview/markup-view.js b/devtools/client/markupv
    this.closeTag.textContent = tagName;
    this.eventNode.style.display = this.node.hasEventListeners ? "inline-block" : "none";
  
-@@ -2751,31 +2744,18 @@ ElementEditor.prototype = {
+@@ -2755,31 +2748,18 @@ ElementEditor.prototype = {
            aEditor.input.select();
          }
        },
@@ -65,7 +84,7 @@ diff --git a/devtools/client/markupview/markup-view.js b/devtools/client/markupv
      if (aAttr.name == "id") {
        before = this.attrList.firstChild;
      } else if (aAttr.name == "class") {
-@@ -2821,31 +2801,50 @@ ElementEditor.prototype = {
+@@ -2825,31 +2805,50 @@ ElementEditor.prototype = {
  
      name.textContent = aAttr.name;
  
@@ -126,7 +145,7 @@ diff --git a/devtools/client/markupview/markup-view.js b/devtools/client/markupv
     */
    _saveAttribute: function(aName, aUndoMods) {
      let node = this.node;
-@@ -2946,18 +2945,28 @@ ElementEditor.prototype = {
+@@ -2950,22 +2949,42 @@ ElementEditor.prototype = {
      // Start listening for mutations until we find an attributes change
      // that modifies this attribute.
      this.markup._inspector.once("markupmutation", onMutations);
@@ -137,30 +156,45 @@ diff --git a/devtools/client/markupview/markup-view.js b/devtools/client/markupv
     */
 -  onTagEdit: function(newTagName, isCommit) {
 -    if (!isCommit || newTagName.toLowerCase() === this.node.tagName.toLowerCase() ||
+-        !("editTagName" in this.markup.walker)) {
 +  onTagEdit: function(value, isCommit) {
 +    if (!isCommit) {
-+      return;
-+    }
-+
-+    // Committed value can contain attributes.
-+    // Consider tag to be before first whitespace and remaining to be attributes.
-+    let newTagName = value.match(/^[^ ]*/)[0];
-+    let attributes = value.slice(newTagName.length);
-+    this._applyAttributes(attributes, null);
-+
-+    if (newTagName.toLowerCase() === this.node.tagName.toLowerCase() ||
-         !("editTagName" in this.markup.walker)) {
        return;
      }
  
++    // Committed value can contain attributes.
++    // Consider tag to be before first whitespace and remaining - attributes.
++    let newTagName = value.match(/^[^ ]*/)[0];
++    let attributes = value.slice(newTagName.length);
++
++    // Apply attributes even if tag isn't changed.
++    if (newTagName.toLowerCase() === this.node.tagName.toLowerCase() ||
++        !("editTagName" in this.markup.walker)) {
++      if (attributes) {
++        this._applyAttributes(attributes, null);
++      }
++      return;
++    }
++
++    // Apply attributes after new node is created.
++    this.markup.once("reselectedonremoved", (e, container) => {
++      if (attributes) {
++        container.editor._applyAttributes(attributes, null);
++      }
++    });
++
      // Changing the tagName removes the node. Make sure the replacing node gets
      // selected afterwards.
      this.markup.reselectOnRemoved(this.node, "edittagname");
      this.markup.walker.editTagName(this.node, newTagName).then(null, () => {
+       // Failed to edit the tag name, cancel the reselection.
+       this.markup.cancelReselectOnRemoved();
+     });
+   },
 diff --git a/devtools/client/markupview/test/browser.ini b/devtools/client/markupview/test/browser.ini
 --- a/devtools/client/markupview/test/browser.ini
 +++ b/devtools/client/markupview/test/browser.ini
-@@ -99,17 +99,17 @@ skip-if = e10s # Bug 1040751 - CodeMirro
+@@ -101,17 +101,17 @@ skip-if = e10s # Bug 1040751 - CodeMirro
  [browser_markupview_node_not_displayed_02.js]
  [browser_markupview_pagesize_01.js]
  [browser_markupview_pagesize_02.js]
