@@ -7,7 +7,7 @@ diff --git a/devtools/client/markupview/markup-view.js b/devtools/client/markupv
 --- a/devtools/client/markupview/markup-view.js
 +++ b/devtools/client/markupview/markup-view.js
 @@ -2634,17 +2634,17 @@ ElementEditor.prototype = {
- 
+
        if (canSimplyShowEditor) {
          // Element already exists and doesn't need to be recreated.
          // Just show it (it's hidden by default due to the template).
@@ -18,7 +18,7 @@ diff --git a/devtools/client/markupview/markup-view.js b/devtools/client/markupv
 -        let attribute = this._createAttribute(attr);
 +        let attribute = this._createAttribute(attr, el);
          attribute.style.removeProperty("display");
- 
+
          // Temporarily flash the attribute to highlight the change.
          // But not if this is the first time the editor instance has
          // been created.
@@ -28,7 +28,7 @@ diff --git a/devtools/client/markupview/markup-view.js b/devtools/client/markupv
 diff --git a/devtools/client/markupview/test/browser.ini b/devtools/client/markupview/test/browser.ini
 --- a/devtools/client/markupview/test/browser.ini
 +++ b/devtools/client/markupview/test/browser.ini
-@@ -111,13 +111,14 @@ skip-if = e10s # Bug 1036409 - The last 
+@@ -111,13 +111,14 @@ skip-if = e10s # Bug 1036409 - The last
  [browser_markupview_tag_edit_05.js]
  [browser_markupview_tag_edit_06.js]
  [browser_markupview_tag_edit_07.js]
@@ -50,33 +50,33 @@ diff --git a/devtools/client/markupview/test/browser_markupview_keybindings_01.j
  /* vim: set ts=2 et sw=2 tw=80: */
  /* Any copyright is dedicated to the Public Domain.
   http://creativecommons.org/publicdomain/zero/1.0/ */
- 
+
  "use strict";
- 
+
  // Tests tabbing through attributes on a node
- 
+
 -const TEST_URL = "data:text/html;charset=utf8,<div a b c d e id='test'></div>";
 +const TEST_URL = "data:text/html;charset=utf8,<div id='test' a b c d e></div>";
- 
+
  add_task(function*() {
    let {inspector} = yield addTab(TEST_URL).then(openInspector);
- 
+
    info("Focusing the tag editor of the test element");
    let {editor} = yield getContainerForSelector("div", inspector);
    editor.tag.focus();
- 
+
 @@ -20,28 +20,28 @@ add_task(function*() {
    checkFocusedAttribute("id");
- 
+
    info("Hit enter to turn the attribute to edit mode");
    EventUtils.sendKey("return", inspector.panelWin);
    checkFocusedAttribute("id", true);
- 
+
    // Check the order of the other attributes in the DOM to the check they appear
    // correctly in the markup-view
 -  let attributes = [...getNode("div").attributes].filter(attr => attr.name !== "id");
 +  let attributes = (yield getAttributesFromEditor("div", inspector)).slice(1);
- 
+
    info("Tabbing forward through attributes in edit mode");
 -  for (let {name} of attributes) {
 +  for (let attribute of attributes) {
@@ -84,14 +84,14 @@ diff --git a/devtools/client/markupview/test/browser_markupview_keybindings_01.j
 -    checkFocusedAttribute(name, true);
 +    checkFocusedAttribute(attribute, true);
    }
- 
+
    info("Tabbing backward through attributes in edit mode");
- 
+
    // Just reverse the attributes other than id and remove the first one since
    // it's already focused now.
    let reverseAttributes = attributes.reverse();
    reverseAttributes.shift();
- 
+
 -  for (let {name} of reverseAttributes) {
 +  for (let attribute of reverseAttributes) {
      collapseSelectionAndShiftTab(inspector);
@@ -105,25 +105,25 @@ diff --git a/devtools/client/markupview/test/browser_markupview_tag_edit_12.js b
 @@ -2,84 +2,62 @@
  /* Any copyright is dedicated to the Public Domain.
   http://creativecommons.org/publicdomain/zero/1.0/ */
- 
+
  "use strict";
- 
+
  // Tests that focus position is correct when tabbing through and editing
  // attributes.
- 
+
 -const TEST_URL = "data:text/html;charset=utf8,<div id='attr' c='3' b='2' a='1'></div><div id='delattr' last='1' tobeinvalid='2'></div>";
 +const TEST_URL = "data:text/html;charset=utf8,<div id='attr' a='1' b='2' c='3'></div><div id='delattr' tobeinvalid='1' last='2'></div>";
- 
+
  add_task(function*() {
    let {inspector} = yield addTab(TEST_URL).then(openInspector);
- 
+
    yield testAttributeEditing(inspector);
    yield testAttributeDeletion(inspector);
  });
- 
+
  function* testAttributeEditing(inspector) {
    info("Testing focus position after attribute editing");
- 
+
 -  // Modifying attributes reorders them in the internal representation to move
 -  // the modified attribute to the end. breadcrumbs.js will update attributes
 -  // to match original order if you selectNode before modifying attributes.
@@ -134,37 +134,37 @@ diff --git a/devtools/client/markupview/test/browser_markupview_tag_edit_12.js b
    info("Setting the first non-id attribute in edit mode");
    yield activateFirstAttribute("#attr", inspector); // focuses id
    collapseSelectionAndTab(inspector); // focuses the first attr after id
- 
+
 -  // Detect the attributes order from the DOM, instead of assuming an order in
 -  // the test, because the NamedNodeMap returned by element.attributes doesn't
 -  // guaranty any specific order.
 -  // Filter out the id attribute as the markup-view places it first anyway.
 -  let attrs = getNodeAttributesOtherThanId("#attr");
 +  let attrs = yield getAttributesFromEditor("#attr", inspector);
- 
+
    info("Editing this attribute, keeping the same name, and tabbing to the next");
 -  yield editAttributeAndTab(attrs[0].name + '="99"', inspector);
 -  checkFocusedAttribute(attrs[1].name, true);
 +  yield editAttributeAndTab(attrs[1] + '="99"', inspector);
 +  checkFocusedAttribute(attrs[2], true);
- 
+
    info("Editing the new focused attribute, keeping the name, and tabbing to the previous");
 -  yield editAttributeAndTab(attrs[1].name + '="99"', inspector, true);
 -  checkFocusedAttribute(attrs[0].name, true);
 +  yield editAttributeAndTab(attrs[2] + '="99"', inspector, true);
 +  checkFocusedAttribute(attrs[1], true);
- 
+
    info("Editing attribute name, changes attribute order");
    yield editAttributeAndTab("d='4'", inspector);
    checkFocusedAttribute("id", true);
- 
+
    // Escape of the currently focused field for the next test
    EventUtils.sendKey("escape", inspector.panelWin);
  }
- 
+
  function* testAttributeDeletion(inspector) {
    info("Testing focus position after attribute deletion");
- 
+
 -  // Modifying attributes reorders them in the internal representation to move
 -  // the modified attribute to the end. breadcrumbs.js will update attributes
 -  // to match original order if you selectNode before modifying attributes.
@@ -175,31 +175,31 @@ diff --git a/devtools/client/markupview/test/browser_markupview_tag_edit_12.js b
    info("Setting the first non-id attribute in edit mode");
    yield activateFirstAttribute("#delattr", inspector); // focuses id
    collapseSelectionAndTab(inspector); // focuses the first attr after id
- 
+
 -  // Detect the attributes order from the DOM, instead of assuming an order in
 -  // the test, because the NamedNodeMap returned by element.attributes doesn't
 -  // guaranty any specific order.
 -  // Filter out the id attribute as the markup-view places it first anyway.
 -  let attrs = getNodeAttributesOtherThanId("#delattr");
 +  let attrs = yield getAttributesFromEditor("#delattr", inspector);
- 
+
    info("Entering an invalid attribute to delete the attribute");
    yield editAttributeAndTab('"', inspector);
 -  checkFocusedAttribute(attrs[1].name, true);
 +  checkFocusedAttribute(attrs[2], true);
- 
+
    info("Deleting the last attribute");
    yield editAttributeAndTab(" ", inspector);
- 
+
    // Check we're on the newattr element
    let focusedAttr = Services.focus.focusedElement;
    ok(focusedAttr.classList.contains("styleinspector-propertyeditor"), "in newattr");
    is(focusedAttr.tagName, "input", "newattr is active");
-@@ -104,12 +82,8 @@ function* editAttributeAndTab(newValue, 
+@@ -104,12 +82,8 @@ function* editAttributeAndTab(newValue,
  function* activateFirstAttribute(container, inspector) {
    let {editor} = yield getContainerForSelector(container, inspector);
    editor.tag.focus();
- 
+
    // Go to "id" attribute and trigger edit mode.
    EventUtils.sendKey("tab", inspector.panelWin);
    EventUtils.sendKey("return", inspector.panelWin);
@@ -227,41 +227,41 @@ new file mode 100644
 +  let {inspector, testActor} = yield addTab(TEST_URL).then(openInspector);
 +
 +  yield testOriginalAttributesOrder(inspector);
-+  yield testOrderAfterAttributeChange(inspector);
-+
-+  function* testOriginalAttributesOrder(inspector) {
-+    info("Testing order of attributes on initial node render");
-+
-+    let attributes = yield getAttributesFromEditor("#order", inspector);
-+    ok(isEqual(attributes, ["id", "class", "a", "b", "c"]), "ordered correctly");
-+  }
-+
-+  function* testOrderAfterAttributeChange(inspector) {
-+    info("Testing order of attributes after attribute is change by setAttribute");
-+
-+    let container = getContainerForSelector("#order", inspector);
-+    yield testActor.setAttribute("#order", "a", "changed");
-+
-+    let attributes = yield getAttributesFromEditor("#order", inspector);
-+    ok(isEqual(attributes, ["id", "class", "a", "b", "c"]), "order isn't changed");
-+  }
-+
-+  function isEqual(a, b) {
-+    return a.toString() === b.toString();
-+  }
++  yield testOrderAfterAttributeChange(inspector, testActor);
 +});
++
++function* testOriginalAttributesOrder(inspector) {
++  info("Testing order of attributes on initial node render");
++
++  let attributes = yield getAttributesFromEditor("#order", inspector);
++  ok(isEqual(attributes, ["id", "class", "a", "b", "c"]), "ordered correctly");
++}
++
++function* testOrderAfterAttributeChange(inspector, testActor) {
++  info("Testing order of attributes after attribute is change by setAttribute");
++
++  let container = getContainerForSelector("#order", inspector);
++  yield testActor.setAttribute("#order", "a", "changed");
++
++  let attributes = yield getAttributesFromEditor("#order", inspector);
++  ok(isEqual(attributes, ["id", "class", "a", "b", "c"]), "order isn't changed");
++}
+
++function isEqual(a, b) {
++  return a.toString() === b.toString();
++}
 diff --git a/devtools/client/markupview/test/head.js b/devtools/client/markupview/test/head.js
 --- a/devtools/client/markupview/test/head.js
 +++ b/devtools/client/markupview/test/head.js
 @@ -18,16 +18,20 @@ waitForExplicitFinish();
- 
+
  // If a test times out we want to see the complete log and not just the last few
  // lines.
  SimpleTest.requestCompleteLog();
- 
+
  // Uncomment this pref to dump all devtools emitted events to the console.
  // Services.prefs.setBoolPref("devtools.dump.emit", true);
- 
+
 +// Import helpers registering the test-actor in remote targets
 +var testDir = gTestPath.substr(0, gTestPath.lastIndexOf("/"));
 +Services.scriptloader.loadSubScript(testDir + "../../../shared/test/test-actor-registry.js", this);
@@ -269,7 +269,7 @@ diff --git a/devtools/client/markupview/test/head.js b/devtools/client/markupvie
  // Set the testing flag on DevToolsUtils and reset it when the test ends
  DevToolsUtils.testing = true;
  registerCleanupFunction(() => DevToolsUtils.testing = false);
- 
+
  // Clear preferences that may be set during the course of tests.
  registerCleanupFunction(() => {
    Services.prefs.clearUserPref("devtools.inspector.htmlPanelOpen");
@@ -292,7 +292,7 @@ diff --git a/devtools/client/markupview/test/head.js b/devtools/client/markupvie
      });
    });
  }
- 
+
  /**
   * Wait for a content -> chrome message on the message manager (the window
   * messagemanager is used).
@@ -305,7 +305,7 @@ diff --git a/devtools/client/markupview/test/head.js b/devtools/client/markupvie
      editMode ? "input": "span",
      editMode ? attrName + " is in edit mode" : attrName + " is not in edit mode");
  }
- 
+
 +/**
 + * Get attributes for node as how they are represented in editor.
 + *
@@ -337,12 +337,12 @@ diff --git a/devtools/client/shared/test/test-actor.js b/devtools/client/shared/
  /* vim: set ft=javascript ts=2 et sw=2 tw=80: */
  /* Any copyright is dedicated to the Public Domain.
   http://creativecommons.org/publicdomain/zero/1.0/ */
- 
+
  "use strict";
- 
+
 -// A helper actor for brower/devtools/inspector tests.
 +// A helper actor for inspector and markupview tests.
- 
+
  var { Cc, Ci, Cu, Cr } = require("chrome");
  const {getRect, getElementFromPoint, getAdjustedQuads} = require("devtools/shared/layout/utils");
  const promise = require("promise");
@@ -355,7 +355,7 @@ diff --git a/devtools/client/shared/test/test-actor.js b/devtools/client/shared/
        value: RetVal("json")
      }
    }),
- 
+
    /**
     * Set a JS property on a DOM Node.
     * @param {String} selector The node selector
@@ -374,7 +374,7 @@ diff --git a/devtools/client/shared/test/test-actor.js b/devtools/client/shared/
      },
      response: {}
    }),
- 
+
    /**
     * Get a JS property on a DOM Node.
     * @param {String} selector The node selector
@@ -394,7 +394,7 @@ diff --git a/devtools/client/shared/test/test-actor.js b/devtools/client/shared/
        value: RetVal("string")
      }
    }),
- 
+
    /**
 +   * Set an attribute on a DOM Node.
 +   * @param {String} selector The node selector
@@ -419,9 +419,9 @@ diff --git a/devtools/client/shared/test/test-actor.js b/devtools/client/shared/
     */
    reloadFrame: protocol.method(function (selector) {
      let node = this._querySelector(selector);
- 
+
      let deferred = promise.defer();
- 
+
 diff --git a/devtools/client/webconsole/test/browser_webconsole_output_dom_elements_02.js b/devtools/client/webconsole/test/browser_webconsole_output_dom_elements_02.js
 --- a/devtools/client/webconsole/test/browser_webconsole_output_dom_elements_02.js
 +++ b/devtools/client/webconsole/test/browser_webconsole_output_dom_elements_02.js
@@ -469,7 +469,7 @@ diff --git a/devtools/client/webconsole/test/browser_webconsole_output_dom_eleme
      ]
    }
  ];
- 
+
  function test() {
    Task.spawn(function*() {
      let {tab} = yield loadTab(TEST_URI);
@@ -480,7 +480,7 @@ diff --git a/devtools/server/actors/inspector.js b/devtools/server/actors/inspec
      }
      return false;
    },
- 
+
    writeAttrs: function() {
      if (!this.rawNode.attributes) {
        return undefined;
@@ -494,7 +494,7 @@ diff --git a/devtools/server/actors/inspector.js b/devtools/server/actors/inspec
        return {namespace: attr.namespace, name: attr.name, value: attr.value };
      });
    },
- 
+
    writePseudoClassLocks: function() {
      if (this.rawNode.nodeType !== Ci.nsIDOMNode.ELEMENT_NODE) {
        return undefined;
