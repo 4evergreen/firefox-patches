@@ -212,7 +212,7 @@ diff --git a/devtools/client/markupview/test/browser_markupview_tag_edit_13-othe
 new file mode 100644
 --- /dev/null
 +++ b/devtools/client/markupview/test/browser_markupview_tag_edit_13-other.js
-@@ -0,0 +1,37 @@
+@@ -0,0 +1,38 @@
 +/* vim: set ts=2 et sw=2 tw=80: */
 +/* Any copyright is dedicated to the Public Domain.
 + http://creativecommons.org/publicdomain/zero/1.0/ */
@@ -227,29 +227,30 @@ new file mode 100644
 +  let {inspector, testActor} = yield addTab(TEST_URL).then(openInspector);
 +
 +  yield testOriginalAttributesOrder(inspector);
-+  yield testOrderAfterAttributeChange(inspector);
-+
-+  function* testOriginalAttributesOrder(inspector) {
-+    info("Testing order of attributes on initial node render");
-+
-+    let attributes = yield getAttributesFromEditor("#order", inspector);
-+    ok(isEqual(attributes, ["id", "class", "a", "b", "c"]), "ordered correctly");
-+  }
-+
-+  function* testOrderAfterAttributeChange(inspector) {
-+    info("Testing order of attributes after attribute is change by setAttribute");
-+
-+    let container = getContainerForSelector("#order", inspector);
-+    yield testActor.setAttribute("#order", "a", "changed");
-+
-+    let attributes = yield getAttributesFromEditor("#order", inspector);
-+    ok(isEqual(attributes, ["id", "class", "a", "b", "c"]), "order isn't changed");
-+  }
-+
-+  function isEqual(a, b) {
-+    return a.toString() === b.toString();
-+  }
++  yield testOrderAfterAttributeChange(inspector, testActor);
 +});
++
++function* testOriginalAttributesOrder(inspector) {
++  info("Testing order of attributes on initial node render");
++
++  let attributes = yield getAttributesFromEditor("#order", inspector);
++  ok(isEqual(attributes, ["id", "class", "a", "b", "c"]), "ordered correctly");
++}
++
++function* testOrderAfterAttributeChange(inspector, testActor) {
++  info("Testing order of attributes after attribute is change by setAttribute");
++
++  let container = getContainerForSelector("#order", inspector);
++  yield testActor.setAttribute("#order", "a", "changed");
++
++  let attributes = yield getAttributesFromEditor("#order", inspector);
++  ok(isEqual(attributes, ["id", "class", "a", "b", "c"]),
++    "order isn't changed");
++}
++
++function isEqual(a, b) {
++  return a.toString() === b.toString();
++}
 diff --git a/devtools/client/markupview/test/head.js b/devtools/client/markupview/test/head.js
 --- a/devtools/client/markupview/test/head.js
 +++ b/devtools/client/markupview/test/head.js
