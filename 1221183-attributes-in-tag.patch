@@ -307,6 +307,35 @@ rename to devtools/client/markupview/test/browser_markupview_tag_edit_03-tag.js
 +  attributes = attributes.map(attribute => attribute.name);
 +  return attributes.sort().toString() == expected.sort().toString();
 +}
+diff --git a/devtools/client/markupview/test/browser_markupview_tag_edit_12.js b/devtools/client/markupview/test/browser_markupview_tag_edit_12.js
+--- a/devtools/client/markupview/test/browser_markupview_tag_edit_12.js
++++ b/devtools/client/markupview/test/browser_markupview_tag_edit_12.js
+@@ -67,22 +67,22 @@ function* testAttributeDeletion(inspecto
+   collapseSelectionAndTab(inspector); // focuses the first attr after id
+ 
+   // Detect the attributes order from the DOM, instead of assuming an order in
+   // the test, because the NamedNodeMap returned by element.attributes doesn't
+   // guaranty any specific order.
+   // Filter out the id attribute as the markup-view places it first anyway.
+   let attrs = getNodeAttributesOtherThanId("#delattr");
+ 
+-  info("Entering an invalid attribute to delete the attribute");
+-  yield editAttributeAndTab('"', inspector);
++  info("Entering empty value to delete the attribute");
++  yield editAttributeAndTab("", inspector);
+   checkFocusedAttribute(attrs[1].name, true);
+ 
+   info("Deleting the last attribute");
+-  yield editAttributeAndTab(" ", inspector);
++  yield editAttributeAndTab("", inspector);
+ 
+   // Check we're on the newattr element
+   let focusedAttr = Services.focus.focusedElement;
+   ok(focusedAttr.classList.contains("styleinspector-propertyeditor"), "in newattr");
+   is(focusedAttr.tagName, "input", "newattr is active");
+ }
+ 
+ function* editAttributeAndTab(newValue, inspector, goPrevious) {
 diff --git a/devtools/client/markupview/test/head.js b/devtools/client/markupview/test/head.js
 --- a/devtools/client/markupview/test/head.js
 +++ b/devtools/client/markupview/test/head.js
