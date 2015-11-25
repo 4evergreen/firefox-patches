@@ -84,7 +84,7 @@ diff --git a/devtools/client/markupview/markup-view.js b/devtools/client/markupv
      if (aAttr.name == "id") {
        before = this.attrList.firstChild;
      } else if (aAttr.name == "class") {
-@@ -2825,31 +2805,54 @@ ElementEditor.prototype = {
+@@ -2825,31 +2805,57 @@ ElementEditor.prototype = {
  
      name.textContent = aAttr.name;
  
@@ -109,7 +109,11 @@ diff --git a/devtools/client/markupview/markup-view.js b/devtools/client/markupv
 -  _applyAttributes: function(aValue, aAttrNode, aDoMods, aUndoMods) {
 -    let attrs = parseAttributeValues(aValue, this.doc);
 +  _applyAttributes: function(value, editedAttribute) {
-+    if (!value) {
++    let attrs = parseAttributeValues(value, this.doc);
++
++    // Empty value is valid only when editing attribute.
++    // In all other cases empty attributes aren't applied.
++    if (attrs.length == 0 && !(value.length == 0 && editedAttribute)) {
 +      return;
 +    }
 +
@@ -123,7 +127,6 @@ diff --git a/devtools/client/markupview/markup-view.js b/devtools/client/markupv
 +      doMods.removeAttribute(attrName);
 +    }
 +
-+    let attrs = parseAttributeValues(value, this.doc);
      for (let attr of attrs) {
        // Create an attribute editor next to the current attribute if needed.
 -      this._createAttribute(attr, aAttrNode ? aAttrNode.nextSibling : null);
@@ -149,7 +152,7 @@ diff --git a/devtools/client/markupview/markup-view.js b/devtools/client/markupv
     */
    _saveAttribute: function(aName, aUndoMods) {
      let node = this.node;
-@@ -2950,22 +2953,38 @@ ElementEditor.prototype = {
+@@ -2950,22 +2956,38 @@ ElementEditor.prototype = {
      // Start listening for mutations until we find an attributes change
      // that modifies this attribute.
      this.markup._inspector.once("markupmutation", onMutations);
