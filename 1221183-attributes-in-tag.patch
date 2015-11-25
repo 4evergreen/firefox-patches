@@ -84,7 +84,7 @@ diff --git a/devtools/client/markupview/markup-view.js b/devtools/client/markupv
      if (aAttr.name == "id") {
        before = this.attrList.firstChild;
      } else if (aAttr.name == "class") {
-@@ -2825,31 +2805,50 @@ ElementEditor.prototype = {
+@@ -2825,31 +2805,54 @@ ElementEditor.prototype = {
  
      name.textContent = aAttr.name;
  
@@ -109,6 +109,10 @@ diff --git a/devtools/client/markupview/markup-view.js b/devtools/client/markupv
 -  _applyAttributes: function(aValue, aAttrNode, aDoMods, aUndoMods) {
 -    let attrs = parseAttributeValues(aValue, this.doc);
 +  _applyAttributes: function(value, editedAttribute) {
++    if (!value) {
++      return;
++    }
++
 +    let doMods = this._startModifyingAttributes();
 +    let undoMods = this._startModifyingAttributes();
 +
@@ -145,7 +149,7 @@ diff --git a/devtools/client/markupview/markup-view.js b/devtools/client/markupv
     */
    _saveAttribute: function(aName, aUndoMods) {
      let node = this.node;
-@@ -2950,22 +2949,42 @@ ElementEditor.prototype = {
+@@ -2950,22 +2953,38 @@ ElementEditor.prototype = {
      // Start listening for mutations until we find an attributes change
      // that modifies this attribute.
      this.markup._inspector.once("markupmutation", onMutations);
@@ -170,17 +174,13 @@ diff --git a/devtools/client/markupview/markup-view.js b/devtools/client/markupv
 +    // Apply attributes even if tag isn't changed.
 +    if (newTagName.toLowerCase() === this.node.tagName.toLowerCase() ||
 +        !("editTagName" in this.markup.walker)) {
-+      if (attributes) {
-+        this._applyAttributes(attributes, null);
-+      }
++      this._applyAttributes(attributes, null);
 +      return;
 +    }
 +
 +    // Apply attributes after new node is created.
 +    this.markup.once("reselectedonremoved", (e, container) => {
-+      if (attributes) {
-+        container.editor._applyAttributes(attributes, null);
-+      }
++      container.editor._applyAttributes(attributes, null);
 +    });
 +
      // Changing the tagName removes the node. Make sure the replacing node gets
@@ -237,7 +237,7 @@ rename to devtools/client/markupview/test/browser_markupview_tag_edit_03-tag.js
  
    info("Getting the markup-container for the test node");
    let container = yield getContainerForSelector("#retag-me", inspector);
-@@ -42,9 +42,53 @@ add_task(function*() {
+@@ -42,9 +42,66 @@ add_task(function*() {
    info("Checking that the tagname change was done");
    parentInfo = yield getNodeInfo("#retag-me");
    is(parentInfo.tagName.toLowerCase(), "p",
@@ -267,7 +267,10 @@ rename to devtools/client/markupview/test/browser_markupview_tag_edit_03-tag.js
 +  let parentInfo = yield getNodeInfo(selector);
 +  is(parentInfo.tagName.toLowerCase(), "p", "tagname wasn't changed");
 +
++  info("Undo attributes change and assert their absence");
 +  yield undoChange(inspector);
++  ok(isEqualAttributes((yield testActor.getAttributes(selector)),
++     ["id"]), "attributes are absent");
 +}
 +
 +function* testAddingAttributesWithTagChange(inspector, testActor) {
@@ -275,6 +278,7 @@ rename to devtools/client/markupview/test/browser_markupview_tag_edit_03-tag.js
 +
 +  let selector = "#retag-me";
 +  let {editor} = yield getContainerForSelector(selector, inspector);
++  let parentInfo;
 +
 +  info("Adding attributes to #retag-me");
 +  let onMutation = inspector.once("markupmutation");
@@ -283,8 +287,17 @@ rename to devtools/client/markupview/test/browser_markupview_tag_edit_03-tag.js
 +  ok(isEqualAttributes((yield testActor.getAttributes(selector)),
 +     ["id", "b", "c"]), "attributes were added");
 +
-+  let parentInfo = yield getNodeInfo(selector);
++  parentInfo = yield getNodeInfo(selector);
 +  is(parentInfo.tagName.toLowerCase(), "div", "tagname was changed");
++
++  todo(false, "Undo attributes change and assert their absence");
++  yield undoChange(inspector);
++  parentInfo = yield getNodeInfo(selector);
++  // After bug 1226021 is fixed, this assertion should be uncommented,
++  // and todo changed to info.
++  // is(parentInfo.tagName.toLowerCase(), "p", "tagname was changed");
++  ok(isEqualAttributes((yield testActor.getAttributes(selector)),
++     ["id"]), "attributes are absent");
 +}
 +
 +function isEqualAttributes(attributes, expected) {
