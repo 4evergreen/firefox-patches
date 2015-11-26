@@ -1,6 +1,6 @@
 # HG changeset patch
 # User Grisha Pushkov <grisha@push.org.ru>
-# Parent  42a976b770f1b1e54133ee0383940013ded058eb
+# Parent  489332006384610e3322739f66729448da0e98d9
 Bug 1223527 - Migrate markup-view tests to use testActor
 
 diff --git a/devtools/client/markupview/test/browser_markupview_copy_image_data.js b/devtools/client/markupview/test/browser_markupview_copy_image_data.js
@@ -92,7 +92,7 @@ diff --git a/devtools/client/markupview/test/browser_markupview_copy_image_data.
 diff --git a/devtools/client/markupview/test/browser_markupview_html_edit_01.js b/devtools/client/markupview/test/browser_markupview_html_edit_01.js
 --- a/devtools/client/markupview/test/browser_markupview_html_edit_01.js
 +++ b/devtools/client/markupview/test/browser_markupview_html_edit_01.js
-@@ -8,70 +8,88 @@
+@@ -8,70 +8,89 @@
  
  loadHelperScript("helper_outerhtml_test_runner.js");
  
@@ -156,6 +156,7 @@ diff --git a/devtools/client/markupview/test/browser_markupview_html_edit_01.js 
 -      let afterSibling = getNode("#siblings-after-sibling");
 +    validate: function*(data, inspector, testActor) {
 +      let {selector, pageNodeFront, selectedNodeFront} = data;
++
 +      let [
 +        beforeSiblingFront,
 +        beforeSiblingText,
@@ -166,7 +167,7 @@ diff --git a/devtools/client/markupview/test/browser_markupview_html_edit_01.js 
 +        yield testActor.getProperty("#siblings-before-sibling", "textContent"),
 +        yield testActor.getProperty("#siblings-after-sibling", "textContent"),
 +        yield testActor.getProperty(selector, "textContent")
-+      ]
++      ];
  
        is(beforeSiblingFront, selectedNodeFront, "Sibling has been selected");
 -      is(pageNode.textContent, "siblings (updated)", "New div has expected text content");
@@ -199,7 +200,7 @@ diff --git a/devtools/client/markupview/test/browser_markupview_html_edit_01.js 
 diff --git a/devtools/client/markupview/test/browser_markupview_html_edit_02.js b/devtools/client/markupview/test/browser_markupview_html_edit_02.js
 --- a/devtools/client/markupview/test/browser_markupview_html_edit_02.js
 +++ b/devtools/client/markupview/test/browser_markupview_html_edit_02.js
-@@ -9,93 +9,122 @@
+@@ -9,93 +9,129 @@
  loadHelperScript("helper_outerhtml_test_runner.js");
  requestLongerTimeout(2);
  
@@ -282,15 +283,18 @@ diff --git a/devtools/client/markupview/test/browser_markupview_html_edit_02.js 
 +    validate: function*(data, inspector, testActor) {
 +      let {selector, pageNodeFront, selectedNodeFront} = data;
 +
-+      let divTextContent = yield testActor.eval(
-+        "document.querySelector('#badMarkup4').textContent");
-+      let divTagName = yield testActor.eval(
-+        "document.querySelector('#badMarkup4').tagName");
-+
-+      let pTextContent = yield testActor.eval(
-+        "document.querySelector('#badMarkup4 p').textContent");
-+      let pTagName = yield testActor.eval(
-+        "document.querySelector('#badMarkup4 p').tagName");
++      let querySelector = "document.querySelector('#badMarkup4";
++      let [
++        divTextContent,
++        divTagName,
++        pTextContent,
++        pTagName
++      ] = [
++        yield testActor.eval(querySelector + "').textContent"),
++        yield testActor.eval(querySelector + "').tagName"),
++        yield testActor.eval(querySelector + " p').textContent"),
++        yield testActor.eval(querySelector + " p').tagName"),
++      ];
 +
        is(pageNodeFront, selectedNodeFront, "Original element is selected");
 -
@@ -315,16 +319,20 @@ diff --git a/devtools/client/markupview/test/browser_markupview_html_edit_02.js 
 +    validate: function*(data, inspector, testActor) {
 +      let {selector, pageNodeFront, selectedNodeFront} = data;
 +
-+      let nodiv = yield testActor.eval(
-+        "document.querySelector('#badMarkup5 div')");
-+      let pTagName = yield testActor.eval(
-+        "document.querySelector('#badMarkup5').tagName");
-+      let pTextContent = yield testActor.eval(
-+        "document.querySelector('#badMarkup5').textContent");
-+      let divTagName = yield testActor.eval(
-+        "document.querySelector('#badMarkup5 ~ div').tagName");
-+      let divTextContent = yield testActor.eval(
-+        "document.querySelector('#badMarkup5 ~ div').textContent");
++      let querySelector = "document.querySelector('#badMarkup5";
++      let [
++        nodiv,
++        pTagName,
++        pTextContent,
++        divTagName,
++        divTextContent
++      ] = [
++        yield testActor.eval(querySelector + " div')"),
++        yield testActor.eval(querySelector + "').tagName"),
++        yield testActor.eval(querySelector + "').textContent"),
++        yield testActor.eval(querySelector + " ~ div').tagName"),
++        yield testActor.eval(querySelector + " ~ div').textContent")
++      ];
 +
        is(pageNodeFront, selectedNodeFront, "Original element is selected");
 -
