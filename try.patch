@@ -1,5 +1,5 @@
 # HG changeset patch
 # User Grisha Pushkov <grisha@push.org.ru>
 # Parent  42a976b770f1b1e54133ee0383940013ded058eb
-try: -b do -p linux,linux64,macosx64,win32,win64 -u xpcshell,mochitest-dt,mochitest-o,mochitest-e10s-devtools-chrome -t none
+try: -b do -e -p linux,linux64,macosx64,win32,win64 -u xpcshell,mochitest-dt,mochitest-o,mochitest-e10s-devtools-chrome -t none
 
