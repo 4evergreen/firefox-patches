@@ -4132,7 +4132,7 @@ diff --git a/devtools/client/markupview/test/head.js b/devtools/client/markupvie
 diff --git a/devtools/client/markupview/test/helper_attributes_test_runner.js b/devtools/client/markupview/test/helper_attributes_test_runner.js
 --- a/devtools/client/markupview/test/helper_attributes_test_runner.js
 +++ b/devtools/client/markupview/test/helper_attributes_test_runner.js
-@@ -1,98 +1,105 @@
+@@ -1,98 +1,112 @@
  /* This Source Code Form is subject to the terms of the Mozilla Public
   * License, v. 2.0. If a copy of the MPL was not distributed with this
   * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -4197,18 +4197,25 @@ diff --git a/devtools/client/markupview/test/helper_attributes_test_runner.js b/
 + *
 + * @param  {Object} test
 + *         A test object should contain the following properties:
-+ *         - desc {String} a textual description for that test, to help when
-+ *         reading logs
-+ *         - text {String} the string to be inserted into the new attribute field
-+ *         - expectedAttributes {Object} a key/value pair object that will be
-+ *         used to check the attributes on the test element
-+ *         - validate {Function} optional extra function that will be called after
-+ *         the attributes have been added and which should be used to assert some
-+ *         more things this test runner might not be checking. The function will
-+ *         be called with the following arguments:
-+ *           - {DOMNode} The element being tested
-+ *           - {MarkupContainer} The corresponding container in the markup-view
-+ *           - {InspectorPanel} The instance of the InspectorPanel opened
++ *         - {String} desc
++ *           A textual description for that test, to help when
++ *           reading logs.
++ *         - {String} text
++ *           The string to be inserted into the new attribute field.
++ *         - {Object} expectedAttributes
++ *           A key/value pair object that will be used to check
++ *           the attributes on the test element.
++ *         - {Function} validate (optional)
++ *           Function that will be called after the attributes
++ *           have been added and which should be used to assert some
++ *           more things this test runner might not be checking.
++ *           The function will be called with the following arguments:
++ *           - {DOMNode} element
++ *             The element being tested.
++ *           - {MarkupContainer} container
++ *             The corresponding container in the markup-view.
++ *           - {InspectorPanel} inspector
++ *             InspectorThe instance of the InspectorPanel opened.
 + * @param  {String} selector
 + * @param  {InspectorPanel} inspector
   */
@@ -4267,7 +4274,7 @@ diff --git a/devtools/client/markupview/test/helper_attributes_test_runner.js b/
      yield inspector.markup.expandAll();
  
      for (let test of tests) {
-@@ -101,29 +108,30 @@ function runEditAttributesTests(tests, i
+@@ -101,29 +115,35 @@ function runEditAttributesTests(tests, i
  
      yield inspector.once("inspector-updated");
    });
@@ -4292,17 +4299,22 @@ diff --git a/devtools/client/markupview/test/helper_attributes_test_runner.js b/
 + *
 + * @param  {Object} test
 + *         A test object should contain the following properties:
-+  *        - desc {String} a textual description for that test, to help when
-+  *        reading logs
-+  *        - node {String} a css selector that will be used to select the node
-+  *        which will be tested during this iteration
-+  *        - originalAttributes {Object} a key/value pair object that will be
-+  *        used to check the attributes of the node before the test runs
-+  *        - name {String} the name of the attribute to focus the editor for
-+  *        - value {String} the new value to be typed in the focused editor
-+  *        - expectedAttributes {Object} a key/value pair object that will be
-+  *        used to check the attributes on the test element
-+ * @param {InspectorPanel} inspector
++ *         - {String} desc
++ *           A textual description for that test, to help when  reading logs.
++ *         - {String} node
++ *           A css selector that will be used to select the node which
++ *           will be tested during this iteration.
++ *         - {Object} originalAttributes
++ *           A key/value pair object that will be
++ *           used to check the attributes of the node before the test runs.
++ *         - {String} name
++ *           The name of the attribute to focus the editor for.
++ *         - {String} value
++ *           The new value to be typed in the focused editor.
++ *         - {Object} expectedAttributes
++ *           A key/value pair object that will be used
++ *           to check the attributes on the test element.
++ * @param  {InspectorPanel} inspector
   */
  function* runEditAttributesTest(test, inspector) {
    info("Starting edit-attribute test: " + test.desc);
@@ -4311,7 +4323,7 @@ diff --git a/devtools/client/markupview/test/helper_attributes_test_runner.js b/
    yield selectNode(test.node, inspector);
  
    info("Asserting that the node has the right attributes to start with");
-@@ -132,17 +140,18 @@ function* runEditAttributesTest(test, in
+@@ -132,17 +152,18 @@ function* runEditAttributesTest(test, in
    info("Editing attribute " + test.name + " with value " + test.value);
  
    let container = yield getContainerForSelector(test.node, inspector);
@@ -4388,7 +4400,7 @@ diff --git a/devtools/client/markupview/test/helper_events_test_runner.js b/devt
 diff --git a/devtools/client/markupview/test/helper_outerhtml_test_runner.js b/devtools/client/markupview/test/helper_outerhtml_test_runner.js
 --- a/devtools/client/markupview/test/helper_outerhtml_test_runner.js
 +++ b/devtools/client/markupview/test/helper_outerhtml_test_runner.js
-@@ -1,75 +1,84 @@
+@@ -1,75 +1,86 @@
  /* This Source Code Form is subject to the terms of the Mozilla Public
   * License, v. 2.0. If a copy of the MPL was not distributed with this
   * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -4440,12 +4452,14 @@ diff --git a/devtools/client/markupview/test/helper_outerhtml_test_runner.js b/d
 + *
 + * @param  {Object} test
 + *         A test object should contain the following properties:
-+ *         - selector {String} a css selector targeting the node to edit
-+ *         - oldHTML {String}
-+ *         - newHTML {String}
-+ *         - validate {Function} will be executed when the edition test is done,
-+ *         after the new outer-html has been inserted. Should be used to verify
-+ *         the actual DOM, see if it corresponds to the newHTML string provided
++ *         - {String} selector
++ *           A css selector targeting the node to edit.
++ *         - {String} oldHTML
++ *         - {String} newHTML
++ *         - {Function} validate
++ *           Will be executed when the edition test is done, after the new
++ *           outer-html has been inserted. Should be used to verify the actual
++ *           DOM, see if it corresponds to the newHTML string provided.
 + * @param  {InspectorPanel} inspector
 + * @param  {Actor} testActor
   */
